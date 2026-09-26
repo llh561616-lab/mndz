@@ -210,7 +210,17 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     users = load_users()
-    broadcast_text = "تم تحديث واجهة البوت لتعود بشكل أبسط وأكثر ترتيباً! 🚀"
+    
+    # إذا كتب نص ورا الأمر (مثلا /broadcast نص معين)، ياخذه، وإذا ما كتب، يرسل رسالة الإذاعة المحدثة الجاهزة
+    if context.args:
+        broadcast_text = " ".join(context.args)
+    else:
+        broadcast_text = (
+            "<b>خبر جديد 😆✨</b>\n\n"
+            "تم تعديل أنظمة البوت وتحديث سيرفراته إلى تقنيات أحدث ومعالج أقوى، "
+            "وأصبح التنزيل فائق السرعة ⚡\n\n"
+            "شكراً لاستخدامكم البوت، تجربة ممتعة 🇮🇶🖤"
+        )
     
     success_count = 0
     fail_count = 0
@@ -219,7 +229,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for uid in users:
         try:
-            await context.bot.send_message(chat_id=int(uid), text=broadcast_text)
+            await context.bot.send_message(chat_id=int(uid), text=broadcast_text, parse_mode="HTML")
             success_count += 1
         except Exception as e:
             logging.error(f"فشل الإرسال إلى {uid}: {e}")
