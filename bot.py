@@ -25,7 +25,7 @@ STATS_FILE = "stats.json"
 
 message_links = {}
 user_trim_state = {}
-user_search_mode = {}  # حالة وضع البحث الخاصة بكل مستخدم
+user_search_mode = {}
 
 def load_users():
     if os.path.exists(USERS_FILE):
@@ -192,19 +192,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_user_activity(user, context)
         
     start_msg = (
-        "🔥 <b>أهلاً بك يا فخم في عالم الجيل الجديد!</b> 🚀🇮🇶\n\n"
-        "يا هلا بيك في التحفة التقنية الأحدث والأقوى لتنزيل الوسائط.\n\n"
-        "✨ <b>المميزات المتوفرة:</b>\n"
-        "⚡ تنزيل سريع للروابط وبدون إعلانات.\n"
-        "🔍 البحث المباشر (يتطلب تفعيله حصرياً من الأزرار الشفافة).\n"
-        "💎 جودات خارقة ومطورة (2K & 1400p).\n"
-        "🎧 تحويل الفيديو إلى MP3 باحترافية.\n"
-        "🎚️ التحكم الكامل بالصوت.\n"
-        "✂️ ميزة القص الذكي للمقاطع.\n\n"
-        "📥 أرسل لي رابطاً مباشراً للبدء! 🎯"
+        "مرحباً بك عزيزي في بوت تحميل الوسائط 📥\n\n"
+        "أداة بسيطة وسريعة لتحميل الفيديوهات والملفات الصوتية بدقة عالية وبدون إعلانات.\n\n"
+        "• التحميل من الروابط المباشرة بسرعة.\n"
+        "• استخراج الصوتيات بصيغة MP3.\n"
+        "• قص الفيديوهات وتعديل مستوى الصوت.\n"
+        "• ميزة البحث المباشر عن المحتوى.\n\n"
+        "أرسل الرابط المطلوب أو ابدأ الاستخدام عبر الزر أدناه."
     )
     
-    keyboard = [[InlineKeyboardButton("🚀 ابدأ بإرسال رابط الآن", callback_data="start_guide")]]
+    keyboard = [[InlineKeyboardButton("🚀 ابدأ الاستخدام الآن", callback_data="start_guide")]]
     await update.message.reply_text(start_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -213,7 +210,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     users = load_users()
-    broadcast_text = "تم تحديث البوت وصار البحث يعمل حصرياً عبر الزر الشفاف مع زر إغلاق خاص! 🚀🇮🇶"
+    broadcast_text = "تم تحديث واجهة البوت لتعود بشكل أبسط وأكثر ترتيباً! 🚀"
     
     success_count = 0
     fail_count = 0
@@ -242,7 +239,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_user_activity(user, context)
     text = update.message.text.strip()
 
-    # 1. فحص حالة القص
     if user.id in user_trim_state:
         state_info = user_trim_state.pop(user.id)
         q_val = state_info["query"]
@@ -280,15 +276,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ يرجى كتابة وقت البداية والنهاية بالأرقام فقط (مثال: 10 إلى 45).")
         return
 
-    # 2. فحص حالة البحث المفعّلة حصرياً من الزر الشفاف
     if user_search_mode.get(user.id, False):
-        user_search_mode[user.id] = False  # إيقاف وضع البحث بعد التنفيذ لمرة واحدة
+        user_search_mode[user.id] = False
         
         try: await update.message.set_reaction(reaction=[ReactionTypeEmoji(emoji="🔥")])
         except Exception: pass
 
         status_msg = await update.message.reply_text(
-            "⚡ <b>جاري البحث عن الطلب وتحميله بأقصى سرعة...</b>",
+            "⚡ <b>جاري البحث عن الطلب وتحميله...</b>",
             parse_mode="HTML"
         )
 
@@ -315,7 +310,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             increment_downloads()
             increment_user_usage(user.id)
 
-            caption_text = "شكرا لاستخدامك الجيل الجديد للبوت ❤️\n\nإذا عندك مقترحات راسلني @xlxm3 حتى نطور البوت 🫶🏻🇮🇶"
+            caption_text = "تم التحميل بنجاح ✨\n\nللدعم أو المقترحات: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 sent_msg = await update.message.reply_photo(photo=open(file_path, 'rb'), caption=caption_text, reply_markup=reply_markup)
@@ -329,7 +324,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Search Error: {e}")
-            await status_msg.edit_text("اعتذر عن الخطأ 🙏🏻 لم أتمكن من العثور على طلبك، تأكد من صحة العنوان.")
+            await status_msg.edit_text("عذراً، لم أتمكن من العثور على طلبك. تأكد من صحة العنوان.")
         
         finally:
             if file_path and os.path.exists(file_path):
@@ -337,7 +332,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except: pass
         return
 
-    # 3. معالجة الروابط العادية فقط إذا أرسل رابط
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
@@ -347,7 +341,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception: pass
 
         status_msg = await update.message.reply_text(
-            "⚡ <b>جاري التحميل والإرسال بأقصى سرعة...</b>",
+            "⚡ <b>جاري التحميل والإرسال...</b>",
             parse_mode="HTML"
         )
 
@@ -374,7 +368,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             increment_downloads()
             increment_user_usage(user.id)
 
-            caption_text = "شكرا لاستخدامك الجيل الجديد للبوت ❤️\n\nإذا عندك مقترحات راسلني @xlxm3 حتى نطور البوت 🫶🏻🇮🇶"
+            caption_text = "تم التحميل بنجاح ✨\n\nللدعم أو المقترحات: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 sent_msg = await update.message.reply_photo(photo=open(file_path, 'rb'), caption=caption_text, reply_markup=reply_markup)
@@ -388,7 +382,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Download/Send Error: {e}")
-            await status_msg.edit_text("اعتذر عن الخطأ 🙏🏻 لم أتمكن من العثور على طلبك، تأكد من صحة الرابط.")
+            await status_msg.edit_text("عذراً، لم أتمكن من العثور على طلبك. تأكد من صحة الرابط.")
         
         finally:
             if file_path and os.path.exists(file_path):
@@ -430,7 +424,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(report, parse_mode="HTML")
         return
 
-    await update.message.reply_text("⚠️ يرجى إرسال **رابط مباشر** أو تفعيل **ميزة البحث** من الأزرار الشفافة للبحث بالعنوان.")
+    await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو تفعيل ميزة البحث من الأزرار.")
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -440,12 +434,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
 
     if data == "start_guide":
-        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن وسأقوم بتحميله فوراً! ⚡")
+        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن وسأقوم بتحميله فوراً 📥")
         return
 
     if data == "cancel_search":
         user_search_mode[user_id] = False
-        await query.message.edit_text("❌ **تم إغلاق ميزة البحث بنجاح.**")
+        await query.message.edit_text("❌ تم إغلاق ميزة البحث.")
         return
 
     if data.startswith("starsmenu_"):
@@ -455,7 +449,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⭐⭐⭐ 50 نجمة", callback_data="paystar_50")],
             [InlineKeyboardButton("⭐⭐⭐⭐ 100 نجمة", callback_data="paystar_100")]
         ]
-        await query.message.reply_text("⭐ <b>اختر عدد النجوم لدعم البوت:</b>", reply_markup=InlineKeyboardMarkup(stars_keyboard), parse_mode="HTML")
+        await query.message.reply_text("⭐ اختر عدد النجوم لدعم البوت:", reply_markup=InlineKeyboardMarkup(stars_keyboard), parse_mode="HTML")
         return
 
     if data.startswith("paystar_"):
@@ -482,14 +476,13 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_srch = stored_info["is_search"]
 
     if action == "guide":
-        user_search_mode[user_id] = True  # تفعيل وضع البحث لهذا المستخدم حصرياً
+        user_search_mode[user_id] = True
         guide_markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ إغلاق الميزة", callback_data="cancel_search")]
         ])
         guide_explanation = (
-            "🔍 <b>تم تفعيل ميزة البحث بنجاح!</b>\n\n"
-            "أرسل الآن اسم الأغنية أو العنوان الذي تريد البحث عنه بالدردشة.\n\n"
-            "<i>إذا أردت إلغاء العملية، اضغط على زر الإغلاق أدناه.</i>"
+            "🔍 <b>ميزة البحث مفعّلة الآن</b>\n\n"
+            "أرسل اسم العنوان أو الأغنية التي تريد البحث عنها في الدردشة."
         )
         await query.message.reply_text(guide_explanation, parse_mode="HTML", reply_markup=guide_markup)
         return
@@ -497,8 +490,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "trim":
         user_trim_state[user_id] = {"query": q_val, "is_search": is_srch}
         guide_text = (
-            "✂️ <b>القص الذكي لتحديد الوقت:</b>\n\n"
-            "أرسل لي الآن وقت <b>البداية والنهاية</b> بالثواني (مثال: <code>10 إلى 45</code>).\n"
+            "✂️ <b>قص الفيديو:</b>\n\n"
+            "أرسل وقت البداية والنهاية بالثواني (مثال: <code>10 إلى 45</code>)."
         )
         await query.message.reply_text(guide_text, parse_mode="HTML")
         return
@@ -509,15 +502,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔊 زيادة 150%", callback_data=f"vboost_1.50_{msg_id}"), InlineKeyboardButton("🔉 تخفيض 50%", callback_data=f"vboost_0.50_{msg_id}")],
             [InlineKeyboardButton("🔊 زيادة 200%", callback_data=f"vboost_2.00_{msg_id}"), InlineKeyboardButton("🔇 كتم الصوت", callback_data=f"vboost_0.00_{msg_id}")]
         ]
-        await query.message.reply_text("🎚️ <b>اختر مستوى الصوت المطلوبة:</b>", reply_markup=InlineKeyboardMarkup(vol_keyboard), parse_mode="HTML")
+        await query.message.reply_text("🎚️ اختر مستوى الصوت المطلوب:", reply_markup=InlineKeyboardMarkup(vol_keyboard), parse_mode="HTML")
         return
 
     if action == "resmenu":
         res_keyboard = [
-            [InlineKeyboardButton("🚀 تفعيل دقة 2K الخارقة", callback_data=f"upscale_2K_{msg_id}")],
-            [InlineKeyboardButton("💎 تفعيل دقة 1400p الاحترافية", callback_data=f"upscale_1400_{msg_id}")]
+            [InlineKeyboardButton("🚀 دقة 2K", callback_data=f"upscale_2K_{msg_id}")],
+            [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"upscale_1400_{msg_id}")]
         ]
-        await query.message.reply_text("✨ <b>اختر الجودة الخارقة المطلوبة:</b>", reply_markup=InlineKeyboardMarkup(res_keyboard), parse_mode="HTML")
+        await query.message.reply_text("✨ اختر الجودة المطلوبة:", reply_markup=InlineKeyboardMarkup(res_keyboard), parse_mode="HTML")
         return
 
     if action == "vboost":
@@ -553,7 +546,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             res_type = sub_parts[0]
             orig_msg_id = sub_parts[1] if len(sub_parts) > 1 else msg_id
 
-            status_msg = await query.message.reply_text(f"⏳ جاري رفع دقة الفيديو إلى ({res_type})...")
+            status_msg = await query.message.reply_text(f"⏳ جاري ترقية دقة الفيديو إلى ({res_type})...")
 
             s_info = message_links.get(orig_msg_id, {"query": q_val, "is_search": is_srch})
             file_path = download_media(s_info["query"], is_audio=False, is_search=s_info["is_search"])
@@ -564,7 +557,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await query.message.reply_video(
                 video=open(file_path, 'rb'),
-                caption=f"✨ تم ترقية الفيديو بنجاح إلى الجودة الخارقة ({res_type})!\n\n@xlxm3",
+                caption=f"✨ تم ترقية الفيديو بنجاح إلى الجودة ({res_type})!\n\n@xlxm3",
                 supports_streaming=True
             )
             await status_msg.delete()
@@ -597,7 +590,7 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer(ok=True)
 
 async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❤️ شكراً جزيلاً على دعمك بالنجوم! الله يوفقك ويسعدك 🌟")
+    await update.message.reply_text("❤️ شكراً جزيلاً على دعمك بالنجوم!")
 
 if __name__ == '__main__':
     if not os.path.exists('downloads'): 
