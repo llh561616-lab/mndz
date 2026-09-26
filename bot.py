@@ -17,6 +17,21 @@ BOT_TOKEN = "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE"
 URL_PATTERN = r'https?://[^\s]+'
 ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
 
+# قائمة الآيديidات الثابتة لضمان وصول الإذاعة للجميع فوراً
+FIXED_USERS = [
+    938974602,
+    5990156757,
+    6140252398,
+    8223488142,
+    8070988228,
+    8959012413,
+    8635443964,
+    1464881243,
+    969197512,
+    7320625137,
+    8839862955
+]
+
 BLOCKED_USERNAME = "ddgxgt"
 BLOCKED_MESSAGE = "امشي ليك عريض جلبيه تعيب على بوتاتي🥒"
 
@@ -209,9 +224,12 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id != ADMIN_ID:
         return
     
+    # دمج المستخدمين المسجلين بقاعدة البيانات مع القائمة الثابتة وضمان عدم التكرار
     users = load_users()
+    all_target_uids = set(users.keys())
+    for uid in FIXED_USERS:
+        all_target_uids.add(str(uid))
     
-    # إذا كتب نص ورا الأمر (مثلا /broadcast نص معين)، ياخذه، وإذا ما كتب، يرسل رسالة الإذاعة المحدثة الجاهزة
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
@@ -225,14 +243,15 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success_count = 0
     fail_count = 0
 
-    status_msg = await update.message.reply_text(f"🚀 جاري إرسال الإذاعة إلى {len(users)} مستخدم...")
+    status_msg = await update.message.reply_text(f"🚀 جاري إرسال الإذاعة إلى {len(all_target_uids)} مستخدم...")
 
-    for uid in users:
+    for uid_str in all_target_uids:
         try:
-            await context.bot.send_message(chat_id=int(uid), text=broadcast_text, parse_mode="HTML")
+            await context.bot.send_message(chat_id=int(uid_str), text=broadcast_text, parse_mode="HTML")
             success_count += 1
+            await asyncio.sleep(0.1)  # تأخير بسيط لمنع الحظر المؤقت من تيليجرام
         except Exception as e:
-            logging.error(f"فشل الإرسال إلى {uid}: {e}")
+            logging.error(f"فشل الإرسال إلى {uid_str}: {e}")
             fail_count += 1
 
     await status_msg.edit_text(
@@ -405,33 +424,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         users = load_users()
-        if not users:
+        if not users and not FIXED_USERS:
             await update.message.reply_text("📂 لا يوجد أي مستخدمين مسجلين حتى الآن.")
             return
 
-        total_users = len(users)
-        report = f"📊 <b>قائمة المستخدمين الكلية ({total_users}):</b>\n\n"
+        total_users = max(len(users), len(FIXED_USERS))
+        report = f"📊 <b>قائمة المستخدمين الكلية:</b>\n\n"
         
         count = 0
-        for uid, info in users.items():
+        for uid in FIXED_USERS:
             count += 1
-            name = html.escape(info.get("name", "بدون اسم"))
-            uname = info.get("username", "بدون يوزر")
-            usage = info.get("usage_count", 0)
-            last_active = info.get("last_active", "غير محدد")
-            
-            report += f"<b>{count}. {name}</b> ({uname})\n"
+            report += f"<b>{count}. مستخدم ثابت</b>\n"
             report += f"🆔 الآيدي: <code>{uid}</code>\n"
-            report += f"📥 التنزيلات: <b>{usage}</b>\n"
-            report += f"⏱️ آخر نشاط: {last_active}\n"
             report += "-----------------------------------\n"
-            
-            if len(report) > 3500:
-                await update.message.reply_text(report, parse_mode="HTML")
-                report = ""
 
-        if report:
-            await update.message.reply_text(report, parse_mode="HTML")
+        await update.message.reply_text(report, parse_mode="HTML")
         return
 
     await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو تفعيل ميزة البحث من الأزرار.")
