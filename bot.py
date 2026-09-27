@@ -5,7 +5,7 @@ import logging
 import subprocess
 import asyncio
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReactionTypeEmoji, LabeledPrice
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
 import yt_dlp
 
@@ -90,6 +90,17 @@ def increment_user_usage(user_id):
         users[uid]["usage_count"] = users[uid].get("usage_count", 0) + 1
         users[uid]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_users(users)
+    else:
+        # لو مستخدم قديم وغير مسجل بالتفصيل، نضيفه بشكل افتراضي
+        users[uid] = {
+            "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "name": "مستخدم سابق",
+            "username": "لا يوجد",
+            "usage_count": 1,
+            "status": "active"
+        }
+        save_users(users)
 
 def is_user_blocked(user) -> bool:
     if user.username and user.username.lower() == BLOCKED_USERNAME.lower():
@@ -117,15 +128,11 @@ def trim_video_clip(input_file: str, start_time: str, end_time: str, output_file
 def upscale_video_resolution(file_path: str, resolution: str):
     output_hd = f"downloads/processed_{resolution}.mp4"
     
-    # التعديلات الجديدة بناءً على طلبك
     if resolution == '2K':
-        # ترفع الجودة وتضبطها على حدود 720p
         scale_filter = 'scale=-2:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2'
     elif resolution == '4K':
-        # ترفع الجودة وتضبطها على حدود 1000p / 1080p
         scale_filter = 'scale=-2:1000:force_original_aspect_ratio=decrease,pad=1778:1000:(ow-iw)/2:(oh-ih)/2'
     else:
-        # جودة 1400p الإضافية
         scale_filter = 'scale=-2:1400:force_original_aspect_ratio=decrease,pad=2400:1400:(ow-iw)/2:(oh-ih)/2'
     
     cmd = [
@@ -286,11 +293,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_id_key = str(update.message.message_id)
             message_links[msg_id_key] = {"query": text, "is_search": True, "file_path": file_path}
             
-            # الأزرار بعد التحميل (تضم الخيارات المحدثة)
+            # الأزرار بدون أقواس للجودات حسب طلبك
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
                 [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
-                [InlineKeyboardButton("🌟 دقة 2K (720p)", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K (1000p)", callback_data=f"res_4K_{msg_id_key}")],
+                [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
                 [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
                 [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")],
                 [InlineKeyboardButton("🔍 ميزة البحث", callback_data=f"guide_{msg_id_key}")],
@@ -320,11 +327,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_id_key = str(update.message.message_id)
             message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
             
-            # الأزرار بعد التحميل (تضم الخيارات المحدثة)
+            # الأزرار بدون أقواس للجودات حسب طلبك
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
                 [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
-                [InlineKeyboardButton("🌟 دقة 2K (720p)", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K (1000p)", callback_data=f"res_4K_{msg_id_key}")],
+                [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
                 [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
                 [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")],
                 [InlineKeyboardButton("🔍 ميزة البحث", callback_data=f"guide_{msg_id_key}")],
@@ -344,27 +351,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         return
 
+    # زر المستخدمين المطور بتقرير متطور ومفصل حسب طلبك
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
-        report = f"📊 <b>قائمة المستخدمين:</b>\n\n"
+        report = f"📊 <b>قائمة جميع المستخدمين المسجلين في البوت:</b>\n\n"
+        
+        # دمج المستخدمين المسجلين في الملف مع القائمة الثابتة
         all_uids = set(users.keys())
         for uid in FIXED_USERS: all_uids.add(str(uid))
+        
         now_time = datetime.now()
         count = 0
         for uid_str in all_uids:
             count += 1
             u_info = users.get(uid_str, {})
-            u_name = u_info.get("name", "مستخدم ثابت")
+            u_name = u_info.get("name", "مستخدم قديم / ثابت")
             u_username = u_info.get("username", "لا يوجد")
             last_active_str = u_info.get("last_active", "غير متوفر")
-            status_icon = "🔴"
-            if last_active_str != "غير متوفر":
+            usage_cnt = u_info.get("usage_count", 0)
+            status_override = u_info.get("status", "active")
+            
+            # تحديد الحالة اللونية حسب الشروط (أخضر = نشط الآن، أصفر = غير متواجد حالياً، أحمر = محظور أو غير مفعل)
+            status_icon = "🔴" # افتراضي أحمر
+            if status_override == "blocked":
+                status_icon = "🔴"
+            elif last_active_str != "غير متوفر":
                 try:
-                    diff = (now_time - datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")).total_seconds() / 60
-                    status_icon = "🟢" if diff <= 10 else "🟡"
-                except: status_icon = "🟡"
-            report += f"<b>{count}. {u_name} {status_icon}</b>\n🆔 <code>{uid_str}</code> | {u_username}\n🕒 آخر نشاط: {last_active_str}\n-------------------\n"
+                    diff_seconds = (now_time - datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")).total_seconds()
+                    if diff_seconds <= 30:
+                        status_icon = "🟢"  # نشط في الثانية نفسها أو اللحظة الحالية
+                    elif diff_seconds <= 600:
+                        status_icon = "🟡"  # نشط وقام بآخر عملية مؤخراً
+                    else:
+                        status_icon = "🟡"  # كان نشط وخارج تيليجرام حالياً
+                except:
+                    status_icon = "🟡"
+            
+            report += (
+                f"<b>{count}. {u_name} {status_icon}</b>\n"
+                f"🆔 الآيدي: <code>{uid_str}</code> | {u_username}\n"
+                f"📥 عدد التنزيلات: <code>{usage_cnt}</code>\n"
+                f"🕒 آخر نشاط: {last_active_str}\n"
+                "-------------------\n"
+            )
         await update.message.reply_text(report, parse_mode="HTML")
         return
 
@@ -432,7 +462,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if data.startswith("res_"):
-            # مثال: res_2K_12345 أو res_4K_12345
             parts = data.split("_")
             res_type = parts[1]
             msg_id = parts[2]
@@ -523,5 +552,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث دقات الفيديو (2K=720p و 4K=1000p) بنجاح...")
+    print("🚀 تم تطبيق التحديثات وإزالة الأقواس وتطوير تقرير المستخدمين بنجاح...")
     app.run_polling(drop_pending_updates=True)
