@@ -61,7 +61,7 @@ async def update_user_activity(user, context: ContextTypes.DEFAULT_TYPE):
             "first_seen": now_str,
             "last_active": now_str,
             "name": user.full_name or "بدون اسم",
-            "username": f"@{user.username}" if user.username else "لا يوجد",
+            "username": user.username if user.username else "",
             "usage_count": 0,
             "status": "active"
         }
@@ -78,7 +78,8 @@ async def update_user_activity(user, context: ContextTypes.DEFAULT_TYPE):
     else:
         users[uid]["last_active"] = now_str
         users[uid]["name"] = user.full_name or "بدون اسم"
-        users[uid]["username"] = f"@{user.username}" if user.username else "لا يوجد"
+        if user.username:
+            users[uid]["username"] = user.username
         users[uid]["status"] = "active"
 
     save_users(users)
@@ -91,12 +92,11 @@ def increment_user_usage(user_id):
         users[uid]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_users(users)
     else:
-        # لو مستخدم قديم وغير مسجل بالتفصيل، نضيفه بشكل افتراضي
         users[uid] = {
             "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "name": "مستخدم سابق",
-            "username": "لا يوجد",
+            "name": f"مستخدم {uid}",
+            "username": "",
             "usage_count": 1,
             "status": "active"
         }
@@ -293,7 +293,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_id_key = str(update.message.message_id)
             message_links[msg_id_key] = {"query": text, "is_search": True, "file_path": file_path}
             
-            # الأزرار بدون أقواس للجودات حسب طلبك
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
                 [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
@@ -327,7 +326,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_id_key = str(update.message.message_id)
             message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
             
-            # الأزرار بدون أقواس للجودات حسب طلبك
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
                 [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
@@ -351,13 +349,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         return
 
-    # زر المستخدمين المطور بتقرير متطور ومفصل حسب طلبك
+    # تعديل عرض اسم المستخدم واليوزر برابط قابل للنقر مباشرة
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
         report = f"📊 <b>قائمة جميع المستخدمين المسجلين في البوت:</b>\n\n"
         
-        # دمج المستخدمين المسجلين في الملف مع القائمة الثابتة
         all_uids = set(users.keys())
         for uid in FIXED_USERS: all_uids.add(str(uid))
         
@@ -366,36 +363,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for uid_str in all_uids:
             count += 1
             u_info = users.get(uid_str, {})
-            u_name = u_info.get("name", "مستخدم قديم / ثابت")
-            u_username = u_info.get("username", "لا يوجد")
+            u_name = u_info.get("name", f"مستخدم {uid_str}")
+            u_username = u_info.get("username", "")
             last_active_str = u_info.get("last_active", "غير متوفر")
             usage_cnt = u_info.get("usage_count", 0)
             status_override = u_info.get("status", "active")
             
-            # تحديد الحالة اللونية حسب الشروط (أخضر = نشط الآن، أصفر = غير متواجد حالياً، أحمر = محظور أو غير مفعل)
-            status_icon = "🔴" # افتراضي أحمر
+            status_icon = "🔴"
             if status_override == "blocked":
                 status_icon = "🔴"
             elif last_active_str != "غير متوفر":
                 try:
                     diff_seconds = (now_time - datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")).total_seconds()
                     if diff_seconds <= 30:
-                        status_icon = "🟢"  # نشط في الثانية نفسها أو اللحظة الحالية
-                    elif diff_seconds <= 600:
-                        status_icon = "🟡"  # نشط وقام بآخر عملية مؤخراً
+                        status_icon = "🟢"
                     else:
-                        status_icon = "🟡"  # كان نشط وخارج تيليجرام حالياً
+                        status_icon = "🟡"
                 except:
                     status_icon = "🟡"
             
+            # جعل الاسم أو اليوزر رابط تواصل مباشر مع الحساب
+            if u_username:
+                profile_link = f"<a href='https://t.me/{u_username}'>{u_name} (@{u_username})</a>"
+            else:
+                profile_link = f"<a href='tg://user?id={uid_str}'>{u_name}</a>"
+            
             report += (
-                f"<b>{count}. {u_name} {status_icon}</b>\n"
-                f"🆔 الآيدي: <code>{uid_str}</code> | {u_username}\n"
-                f"📥 عدد التنزيلات: <code>{usage_cnt}</code>\n"
-                f"🕒 آخر نشاط: {last_active_str}\n"
+                f"<b>{count}.</b> {profile_link} {status_icon}\n"
+                f"🆔 الآيدي: <code>{uid_str}</code>\n"
+                f"📥 التنزيلات: <code>{usage_cnt}</code> | 🕒 النشاط: {last_active_str}\n"
                 "-------------------\n"
             )
-        await update.message.reply_text(report, parse_mode="HTML")
+        await update.message.reply_text(report, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو تفعيل ميزة البحث.")
@@ -507,7 +506,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_video(video=open(processed_path, 'rb'), caption=caption, supports_streaming=True)
             await status_msg.delete()
             if local_file and os.path.exists(local_file): os.remove(local_file)
-            if os.path.exists(processed_path): os.remove(processed_path)
+            if processed_path and os.path.exists(processed_path): os.remove(processed_path)
             return
 
         if data.startswith("audio_"):
@@ -552,5 +551,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تطبيق التحديثات وإزالة الأقواس وتطوير تقرير المستخدمين بنجاح...")
+    print("🚀 تم تحديث القائمة لربط أسماء المستخدمين بحساباتهم مباشرة...")
     app.run_polling(drop_pending_updates=True)
