@@ -349,7 +349,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         return
 
-    # تعديل عرض اسم المستخدم واليوزر برابط قابل للنقر مباشرة
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
@@ -382,7 +381,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     status_icon = "🟡"
             
-            # جعل الاسم أو اليوزر رابط تواصل مباشر مع الحساب
             if u_username:
                 profile_link = f"<a href='https://t.me/{u_username}'>{u_name} (@{u_username})</a>"
             else:
@@ -474,11 +472,26 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             local_file = download_media(q_val, is_audio=False, is_search=is_srch)
             up_path = upscale_video_resolution(local_file, res_type)
             
+            # التحقق من أن الملف موجود وصحيح قبل إرساله لمنع أي خطأ
+            if not os.path.exists(up_path) or os.path.getsize(up_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو أو أن الملف غير موجود.")
+                return
+            
             increment_downloads()
             increment_user_usage(user_id)
             
-            caption = f"✨ تم ضبط دقة الفيديو بنجاح ({res_type})!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-            await query.message.reply_video(video=open(up_path, 'rb'), caption=caption, supports_streaming=True)
+            # كليشة توضيحية للمستخدم بأن الجودة عالية جداً وقد لا يعمل المعرض الداخلي لتيليجرام عليها
+            caption = (
+                f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\n"
+                "⚠️ <b>ملاحظة هامة:</b> نظراً لأن دقة الفيديو عالية جداً، قد لا يعمل مشغل تيليجرام الداخلي لدعم هذا الحجم؛ "
+                "لذا يُفضل حفظ الفيديو أو فتحه عبر مشغل خارجي (مثل VLC) ليعمل بسلاسة.\n\n"
+                "شكراً لاستخدامك البوت ❤️\n"
+                "للدعم تواصل مع المطور: @xlxm3"
+            )
+            
+            with open(up_path, 'rb') as f_video:
+                await query.message.reply_video(video=f_video, caption=caption, parse_mode="HTML", supports_streaming=True)
+                
             await status_msg.delete()
             if local_file and os.path.exists(local_file): os.remove(local_file)
             if up_path and os.path.exists(up_path): os.remove(up_path)
@@ -499,11 +512,17 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             processed_path = "downloads/processed_audio.mp4"
             process_audio_volume(local_file, factor, processed_path)
             
+            if not os.path.exists(processed_path) or os.path.getsize(processed_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة الصوت.")
+                return
+            
             increment_downloads()
             increment_user_usage(user_id)
             
             caption = "🎚️ تم تعديل الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-            await query.message.reply_video(video=open(processed_path, 'rb'), caption=caption, supports_streaming=True)
+            with open(processed_path, 'rb') as f_audio:
+                await query.message.reply_video(video=f_audio, caption=caption, supports_streaming=True)
+                
             await status_msg.delete()
             if local_file and os.path.exists(local_file): os.remove(local_file)
             if processed_path and os.path.exists(processed_path): os.remove(processed_path)
@@ -517,11 +536,18 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_srch = stored.get("is_search", False)
             
             audio_path = download_media(q_val, is_audio=True, is_search=is_srch)
+            
+            if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، فشل استخراج الملف الصوتي.")
+                return
+            
             increment_downloads()
             increment_user_usage(user_id)
             
             caption = "🎵 تم استخراج الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-            await query.message.reply_audio(audio=open(audio_path, 'rb'), caption=caption)
+            with open(audio_path, 'rb') as f_mp3:
+                await query.message.reply_audio(audio=f_mp3, caption=caption)
+                
             await status_msg.delete()
             if audio_path and os.path.exists(audio_path): os.remove(audio_path)
             return
@@ -551,5 +577,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث القائمة لربط أسماء المستخدمين بحساباتهم مباشرة...")
+    print("🚀 تم تطبيق الكود النهائي مع التحقق من وجود الملفات والكليشة التوضيحية للجودات العالية...")
     app.run_polling(drop_pending_updates=True)
