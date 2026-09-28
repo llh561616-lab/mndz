@@ -263,7 +263,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإضافة حماية وتحسينات شاملة لروابط يوتيوب وتيك توك ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحويل منشورات صور تيك توك (السلايد شو) إلى ملفات صوتية MP3 مباشرة ⚡"
     
     success_count = 0
     fail_count = 0
@@ -336,22 +336,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل والإرسال...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
         file_path = None
         
         try:
+            # محاولة التحميل كفيديو افتراضياً
             file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                # إذا كان الرابط لمنشور صور تيك توك، نقوم تلقائياً بسحب صوت المنشور وإرساله كملف صوتي
-                await status_msg.edit_text("⚠️ هذا الرابط عبارة عن <b>منشور صور تيك توك</b>. جاري استخراج وإرسال صوت المنشور المرافق له 🎵", parse_mode="HTML")
+                # إذا فشل لأنه منشور صور (Slideshow)، نقوم فوراً بتحويله واستخراج الصوت الخاص به وإرساله للمستخدم كملف MP3 كما طلبت تماماً!
+                await status_msg.edit_text("🎵 <b>هذا الرابط عبارة عن منشور صور (Slideshow)، جاري استخراج وتحويل الموسيقى المصاحبة إلى ملف صوتي MP3...</b>", parse_mode="HTML")
                 audio_path = download_media(query_val, is_audio=True, is_search=False)
-                if audio_path and os.path.exists(audio_path):
+                
+                if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
                     increment_downloads()
                     increment_user_usage(user.id)
+                    caption_audio = "✨ <b>تم استخراج نغمة منشور تيك توك بنجاح!</b>\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
                     with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="🎵 صوت منشور الصور من تيك توك\n\nللدعم: @xlxm3")
+                        await update.message.reply_audio(audio=f_aud, caption=caption_audio, parse_mode="HTML")
                     os.remove(audio_path)
+                else:
+                    await update.message.reply_text("⚠️ عذراً، لم نتمكن من العثور على صوت أو محتوى في هذا الرابط.")
+                
                 await status_msg.delete()
                 return
 
@@ -378,13 +384,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
             try:
-                # معالجة احتياطية لسحب الصوت في حال الخطأ
+                # معالجة احتياطية فورية لاستخراج الصوت إذا حدث أي استثناء لروابط السلايد شو
                 audio_path = download_media(query_val, is_audio=True, is_search=False)
                 if audio_path and os.path.exists(audio_path):
                     increment_downloads()
                     increment_user_usage(user.id)
                     with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج صوت منشور تيك توك بنجاح ❤️\n\nللدعم: @xlxm3")
+                        await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج نغمة منشور تيك توك بنجاح ❤️\n\nللدعم: @xlxm3")
                     os.remove(audio_path)
                     await status_msg.delete()
                     return
@@ -471,5 +477,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 البوت يعمل بكامل مميزاته وقائمة مستخدميه وأزراره ومعالجة روابط الصور...")
+    print("🚀 البوت يعمل بكامل مميزاته وقائمة مستخدميه وأزراره وتحويل روابط الصور إلى MP3 مباشرة...")
     app.run_polling(drop_pending_updates=True)
