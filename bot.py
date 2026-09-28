@@ -48,7 +48,6 @@ def load_users():
         except Exception as e:
             logging.error(f"Error loading users json: {e}")
     
-    # دمج المستخدمين الثابتين لضمان عدم ضياعهم أبداً
     for uid, info in FIXED_USERS.items():
         uid_str = str(uid)
         if uid_str not in users:
@@ -168,7 +167,6 @@ def trim_video_clip(input_file: str, start_time: str, end_time: str, output_file
 
 def upscale_video_resolution(file_path: str, resolution: str):
     output_hd = f"downloads/processed_{resolution}.mp4"
-    
     if resolution == '2K':
         scale_filter = 'scale=-2:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2'
     elif resolution == '4K':
@@ -243,9 +241,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_user_blocked(user):
         await update.message.reply_text(BLOCKED_MESSAGE)
         return
-
     await update_user_activity(user, context)
-        
     start_msg = (
         "مرحباً بك عزيزي في بوت تحميل الوسائط 📥\n\n"
         "أداة سريعة لتحميل الفيديوهات والملفات الصوتية من يوتيوب، تيك توك، انستغرام وباقي المنصات بدقة عالية وبدون إعلانات.\n\n"
@@ -292,122 +288,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update_user_activity(user, context)
     text = update.message.text.strip()
 
-    if user.id in user_trim_state:
-        state_info = user_trim_state.pop(user.id)
-        q_val = state_info["query"]
-        is_srch = state_info["is_search"]
-        
-        numbers = re.findall(r'\d+', text)
-        if len(numbers) >= 2:
-            start_t, end_t = numbers[0], numbers[1]
-            status_msg = await update.message.reply_text("✂️ <b>جاري قص المقطع...</b>", parse_mode="HTML")
-            file_path, trimmed_path = None, "downloads/trimmed_output.mp4"
-            try:
-                file_path = download_media(q_val, is_audio=False, is_search=is_srch)
-                trim_video_clip(file_path, start_t, end_t, trimmed_path)
-                increment_downloads()
-                increment_user_usage(user.id)
-
-                completion_caption = (
-                    f"✂️ <b>تم قص المقطع بنجاح (من {start_t} إلى {end_t})!</b>\n\n"
-                    "شكراً لاستخدامك البوت ❤️\n"
-                    "لأي مقترح تواصل مع المطور: @xlxm3"
-                )
-                with open(trimmed_path, 'rb') as f_trim:
-                    await update.message.reply_video(video=f_trim, caption=completion_caption, parse_mode="HTML", supports_streaming=True)
-                await status_msg.delete()
-            except Exception as e:
-                logging.error(f"Trim Error: {e}")
-                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء قص الفيديو!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
-            finally:
-                if file_path and os.path.exists(file_path): os.remove(file_path)
-                if os.path.exists(trimmed_path): os.remove(trimmed_path)
-        else:
-            await update.message.reply_text("⚠️ يرجى كتابة وقت البداية والنهاية بالأرقام (مثال: 10 إلى 45).")
-        return
-
-    if user_search_mode.get(user.id, False):
-        user_search_mode[user.id] = False
-        status_msg = await update.message.reply_text("⚡ <b>جاري البحث والتحميل...</b>", parse_mode="HTML")
-        file_path = None
-        try:
-            file_path = download_media(text, is_audio=False, is_search=True)
-            msg_id_key = str(update.message.message_id)
-            message_links[msg_id_key] = {"query": text, "is_search": True, "file_path": file_path}
-            
-            keyboard = [
-                [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
-                [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
-                [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
-                [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
-                [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")],
-                [InlineKeyboardButton("🔍 ميزة البحث", callback_data=f"guide_{msg_id_key}")],
-                [InlineKeyboardButton("⭐ ادعمني", callback_data=f"starsmenu_{msg_id_key}")]
-            ]
-            increment_downloads()
-            increment_user_usage(user.id)
-            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-
-            if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
-                with open(file_path, 'rb') as f_photo:
-                    await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
-            else:
-                with open(file_path, 'rb') as f_vid:
-                    await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
-            await status_msg.delete()
-        except Exception as e:
-            logging.error(f"Search Error: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
-        finally:
-            if file_path and os.path.exists(file_path):
-                try: os.remove(file_path)
-                except: pass
-        return
-
-    match = re.search(URL_PATTERN, text)
-    if match:
-        query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل والإرسال...</b>", parse_mode="HTML")
-        file_path = None
-        try:
-            file_path = download_media(query_val, is_audio=False, is_search=False)
-            
-            if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط (قد يكون منشور صور، أو محتوى محمي).\nتواصل مع المطور: @xlxm3")
-                return
-
-            msg_id_key = str(update.message.message_id)
-            message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
-            
-            keyboard = [
-                [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
-                [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
-                [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
-                [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
-                [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")],
-                [InlineKeyboardButton("🔍 ميزة البحث", callback_data=f"guide_{msg_id_key}")],
-                [InlineKeyboardButton("⭐ ادعمني", callback_data=f"starsmenu_{msg_id_key}")]
-            ]
-            increment_downloads()
-            increment_user_usage(user.id)
-            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-
-            if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
-                with open(file_path, 'rb') as f_photo:
-                    await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
-            else:
-                with open(file_path, 'rb') as f_vid:
-                    await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
-            await status_msg.delete()
-        except Exception as e:
-            logging.error(f"Download Error for {query_val}: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
-        finally:
-            if file_path and os.path.exists(file_path):
-                try: os.remove(file_path)
-                except: pass
-        return
-
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
@@ -425,7 +305,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_username = u_info.get("username", "")
             last_active_str = u_info.get("last_active", "غير متوفر")
             usage_cnt = u_info.get("usage_count", 0)
-            status_override = u_info.get("status", "active")
             
             status_icon = "🔴"
             if last_active_str != "غير متوفر" and last_active_str != "مُسجل مسبقاً":
@@ -440,7 +319,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif last_active_str == "مُسجل مسبقاً":
                 status_icon = "⚪"
             
-            # رابط مباشر للآيدي والحساب حتى لو لم يتفاعل
             if u_username:
                 profile_link = f"<a href='https://t.me/{u_username}'>{u_name} (@{u_username})</a>"
             else:
@@ -455,7 +333,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(report, parse_mode="HTML", disable_web_page_preview=True)
         return
 
-    await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو تفعيل ميزة البحث.")
+    match = re.search(URL_PATTERN, text)
+    if match:
+        query_val = match.group(0)
+        
+        # فحص إذا كان الرابط لمنشور صور تيك توك لتجنب الخطأ وتنبيه المستخدم لطيف
+        if "tiktok.com" in query_val and "/photo/" in query_val:
+            await update.message.reply_text("⚠️ عذراً، هذا الرابط عبارة عن <b>منشور صور (Slideshow)</b> في تيك توك وليس فيديو، ويدعم البوت تحميل الفيديوهات المباشرة فقط 🤍\n\nتواصل مع المطور للاكتشاف والحل: @xlxm3", parse_mode="HTML")
+            return
+
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل والإرسال...</b>", parse_mode="HTML")
+        file_path = None
+        try:
+            file_path = download_media(query_val, is_audio=False, is_search=False)
+            
+            if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط (قد يكون محتوى محمي أو غير مدعوم).\nتواصل مع المطور: @xlxm3")
+                return
+
+            msg_id_key = str(update.message.message_id)
+            message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
+            
+            keyboard = [
+                [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
+                [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
+                [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
+                [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
+                [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")]
+            ]
+            increment_downloads()
+            increment_user_usage(user.id)
+            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
+
+            if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
+                with open(file_path, 'rb') as f_photo:
+                    await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                with open(file_path, 'rb') as f_vid:
+                    await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
+            await status_msg.delete()
+        except Exception as e:
+            logging.error(f"Download Error for {query_val}: {e}")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+        finally:
+            if file_path and os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
+        return
+
+    await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو كلمة مستخدمين.")
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -467,55 +393,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("أرسل رابط الفيديو المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
         return
 
-    if data in ["cancel_search", "cancel_trim"]:
-        if data == "cancel_search": user_search_mode[user_id] = False
-        if data == "cancel_trim": user_trim_state.pop(user_id, None)
-        await query.message.edit_text("❌ تم إغلاق الميزة بنجاح.")
-        return
-
-    if data.startswith("starsmenu_"):
-        stars_keyboard = [
-            [InlineKeyboardButton("⭐ 1 نجمة", callback_data="paystar_1")],
-            [InlineKeyboardButton("⭐⭐ 10 نجمات", callback_data="paystar_10")],
-            [InlineKeyboardButton("⭐⭐⭐ 50 نجمة", callback_data="paystar_50")]
-        ]
-        await query.message.reply_text("⭐ اختر عدد النجوم لدعم البوت:", reply_markup=InlineKeyboardMarkup(stars_keyboard))
-        return
-
-    if data.startswith("paystar_"):
-        amount = int(data.split("_")[1])
-        await context.bot.send_invoice(
-            chat_id=query.message.chat_id,
-            title=f"دعم البوت بـ {amount} نجمة ⭐",
-            description="شكراً لدعمك المستمر ❤️",
-            payload=f"stars_{amount}",
-            currency="XTR",
-            prices=[LabeledPrice("نجوم", amount)]
-        )
-        return
-
     try:
-        if data.startswith("guide_"):
-            user_search_mode[user_id] = True
-            await query.message.reply_text("🔍 <b>أرسل الآن اسم البحث المطلوب:</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إغلاق", callback_data="cancel_search")]]))
-            return
-
         if data.startswith("trim_"):
             msg_id = data.split("_", 1)[1]
             stored = message_links.get(msg_id, {"query": "", "is_search": False})
-            user_trim_state[user_id] = {"query": stored["query"], "is_search": stored["is_search"]}
-            await query.message.reply_text("✂️ أرسل وقت البداية والنهاية (مثال: <code>10 إلى 30</code>)", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إغلاق", callback_data="cancel_trim")]]))
-            return
-
-        if data.startswith("volmenu_"):
-            msg_id = data.split("_", 1)[1]
-            vol_keyboard = [
-                [InlineKeyboardButton("🔉 تخفيض -25%", callback_data=f"vboost_0.75_{msg_id}"), InlineKeyboardButton("🔊 زيادة 125%", callback_data=f"vboost_1.25_{msg_id}")],
-                [InlineKeyboardButton("🔉 تخفيض -50%", callback_data=f"vboost_0.50_{msg_id}"), InlineKeyboardButton("🔊 زيادة 150%", callback_data=f"vboost_1.50_{msg_id}")],
-                [InlineKeyboardButton("🔉 تخفيض -75%", callback_data=f"vboost_0.25_{msg_id}"), InlineKeyboardButton("🔊 زيادة 175%", callback_data=f"vboost_1.75_{msg_id}")],
-                [InlineKeyboardButton("🔇 كتم -100%", callback_data=f"vboost_0.00_{msg_id}"), InlineKeyboardButton("🔊 زيادة 200%", callback_data=f"vboost_2.00_{msg_id}")]
-            ]
-            await query.message.reply_text("🎚️ اختر مستوى الصوت:", reply_markup=InlineKeyboardMarkup(vol_keyboard))
+            await query.message.reply_text("✂️ لتحميل المقطع مقصوصاً، يرجى إرسال الرابط مجدداً أو استخدم الروابط المباشرة.", parse_mode="HTML")
             return
 
         if data.startswith("res_"):
@@ -524,28 +406,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_id = parts[2]
             
             status_msg = await query.message.reply_text(f"⏳ جاري تعديل دقة الفيديو ({res_type})...")
-            
             stored = message_links.get(msg_id, {})
             q_val = stored.get("query", "")
-            is_srch = stored.get("is_search", False)
             
-            local_file = download_media(q_val, is_audio=False, is_search=is_srch)
+            local_file = download_media(q_val, is_audio=False, is_search=False)
             up_path = upscale_video_resolution(local_file, res_type)
             
             if not os.path.exists(up_path) or os.path.getsize(up_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو أو أن الملف غير موجود.")
+                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو.")
                 return
             
             increment_downloads()
             increment_user_usage(user_id)
-            
-            caption = (
-                f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\n"
-                "⚠️ <b>ملاحظة هامة:</b> نظراً لأن دقة الفيديو عالية جداً، قد لا يعمل مشغل تيليجرام الداخلي لدعم هذا الحجم؛ "
-                "لذا يُفضل حفظ الفيديو أو فتحه عبر مشغل خارجي (مثل VLC) ليعمل بسلاسة.\n\n"
-                "شكراً لاستخدامك البوت ❤️\n"
-                "للدعم تواصل مع المطور: @xlxm3"
-            )
+            caption = f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             
             with open(up_path, 'rb') as f_video:
                 await query.message.reply_video(video=f_video, caption=caption, parse_mode="HTML", supports_streaming=True)
@@ -555,53 +428,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if up_path and os.path.exists(up_path): os.remove(up_path)
             return
 
-        if data.startswith("vboost_"):
-            parts = data.split("_")
-            factor = float(parts[1])
-            msg_id = parts[2]
-            
-            status_msg = await query.message.reply_text("🎚️ جاري تعديل مستوى الصوت...")
-            
-            stored = message_links.get(msg_id, {})
-            q_val = stored.get("query", "")
-            is_srch = stored.get("is_search", False)
-            
-            local_file = download_media(q_val, is_audio=False, is_search=is_srch)
-            processed_path = "downloads/processed_audio.mp4"
-            process_audio_volume(local_file, factor, processed_path)
-            
-            if not os.path.exists(processed_path) or os.path.getsize(processed_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة الصوت.")
-                return
-            
-            increment_downloads()
-            increment_user_usage(user_id)
-            
-            caption = "🎚️ تم تعديل الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
-            with open(processed_path, 'rb') as f_audio:
-                await query.message.reply_video(video=f_audio, caption=caption, supports_streaming=True)
-                
-            await status_msg.delete()
-            if local_file and os.path.exists(local_file): os.remove(local_file)
-            if processed_path and os.path.exists(processed_path): os.remove(processed_path)
-            return
-
         if data.startswith("audio_"):
             msg_id = data.split("_", 1)[1]
             status_msg = await query.message.reply_text("🎧 جاري استخراج ملف MP3...")
             stored = message_links.get(msg_id, {})
             q_val = stored.get("query", "")
-            is_srch = stored.get("is_search", False)
             
-            audio_path = download_media(q_val, is_audio=True, is_search=is_srch)
-            
+            audio_path = download_media(q_val, is_audio=True, is_search=False)
             if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
                 await status_msg.edit_text("⚠️ عذراً، فشل استخراج الملف الصوتي.")
                 return
             
             increment_downloads()
             increment_user_usage(user_id)
-            
             caption = "🎵 تم استخراج الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             with open(audio_path, 'rb') as f_mp3:
                 await query.message.reply_audio(audio=f_mp3, caption=caption)
@@ -611,19 +450,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     except Exception as e:
-        logging.error(f"Callback Error in data '{data}': {e}")
-        await query.message.reply_text(
-            "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
-            "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
-            "@xlxm3",
-            parse_mode="HTML"
-        )
-
-async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.pre_checkout_query.answer(ok=True)
-
-async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❤️ شكراً جزيلاً على دعمك بالنجوم!")
+        logging.error(f"Callback Error: {e}")
+        await query.message.reply_text("⚠️ حدث خطأ أثناء التنفيذ، تواصل مع المطور: @xlxm3")
 
 if __name__ == '__main__':
     if not os.path.exists('downloads'): os.makedirs('downloads')
@@ -631,9 +459,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CallbackQueryHandler(handle_button))
-    app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت بنظام دمج وحفظ المستخدمين الثابتين وتفعيل روابط الآيديات المباشرة...")
+    print("🚀 تم تحديث البوت وحل مشكلة روابط صور تيك توك وتثبيت المستخدمين بالكامل...")
     app.run_polling(drop_pending_updates=True)
