@@ -15,10 +15,19 @@ BOT_TOKEN = "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE"
 URL_PATTERN = r'https?://[^\s]+'
 ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
 
-FIXED_USERS = [
-    938974602, 5990156757, 6140252398, 8223488142, 8070988228,
-    8959012413, 8635443964, 1464881243, 969197512, 7320625137, 8839862955
-]
+FIXED_USERS = {
+    938974602: {"name": "مستخدم 1", "username": ""},
+    5990156757: {"name": "مستخدم 2", "username": ""},
+    6140252398: {"name": "Mostfa Akeel", "username": "masvjx"},
+    8223488142: {"name": "مستخدم 3", "username": ""},
+    8070988228: {"name": "مستخدم 4", "username": ""},
+    8959012413: {"name": "مستخدم 5", "username": ""},
+    8635443964: {"name": "مستخدم 6", "username": ""},
+    1464881243: {"name": "مستخدم 7", "username": ""},
+    969197512: {"name": "مستخدم 8", "username": ""},
+    7320625137: {"name": "Mousa ❤️", "username": "Mousaa_313"},
+    8839862955: {"name": "المطور", "username": "xlxm3"}
+}
 
 BLOCKED_USERNAME = "ddgxgt"
 BLOCKED_MESSAGE = "امشي ليك عريض جلبيه تعيب على بوتاتي🥒"
@@ -31,76 +40,108 @@ user_trim_state = {}
 user_search_mode = {}
 
 def load_users():
+    users = {}
     if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except Exception as e:
+            logging.error(f"Error loading users json: {e}")
+    
+    # دمج المستخدمين الثابتين لضمان عدم ضياعهم أبداً
+    for uid, info in FIXED_USERS.items():
+        uid_str = str(uid)
+        if uid_str not in users:
+            users[uid_str] = {
+                "first_seen": "مُسجل مسبقاً",
+                "last_active": "غير متوفر",
+                "name": info["name"],
+                "username": info["username"],
+                "usage_count": 0,
+                "status": "active"
+            }
+    return users
 
 def save_users(users_data):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users_data, f, ensure_ascii=False, indent=2)
+    try:
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving users json: {e}")
 
 def load_downloads():
     if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, 'r') as f:
-            return json.load(f).get("downloads", 0)
+        try:
+            with open(STATS_FILE, 'r') as f:
+                return json.load(f).get("downloads", 0)
+        except:
+            return 0
     return 0
 
 def increment_downloads():
     d_count = load_downloads() + 1
-    with open(STATS_FILE, 'w') as f:
-        json.dump({"downloads": d_count}, f)
+    try:
+        with open(STATS_FILE, 'w') as f:
+            json.dump({"downloads": d_count}, f)
+    except Exception as e:
+        logging.error(f"Error saving stats: {e}")
 
 async def update_user_activity(user, context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    uid = str(user.id)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    if uid not in users:
-        users[uid] = {
-            "first_seen": now_str,
-            "last_active": now_str,
-            "name": user.full_name or "بدون اسم",
-            "username": user.username if user.username else "",
-            "usage_count": 0,
-            "status": "active"
-        }
-        try:
-            admin_notify = (
-                "🚨 <b>مستخدم جديد دخل إلى البوت!</b>\n\n"
-                f"👤 الاسم: {user.full_name or 'بدون اسم'}\n"
-                f"🔗 اليوزر: @{user.username if user.username else 'لا يوجد'}\n"
-                f"🆔 الآيدي: <code>{user.id}</code>"
-            )
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_notify, parse_mode="HTML")
-        except Exception as e:
-            logging.error(f"Failed to send admin notification: {e}")
-    else:
-        users[uid]["last_active"] = now_str
-        users[uid]["name"] = user.full_name or "بدون اسم"
-        if user.username:
-            users[uid]["username"] = user.username
-        users[uid]["status"] = "active"
+    try:
+        users = load_users()
+        uid = str(user.id)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        if uid not in users:
+            users[uid] = {
+                "first_seen": now_str,
+                "last_active": now_str,
+                "name": user.full_name or "بدون اسم",
+                "username": user.username if user.username else "",
+                "usage_count": 0,
+                "status": "active"
+            }
+            try:
+                admin_notify = (
+                    "🚨 <b>مستخدم جديد دخل إلى البوت!</b>\n\n"
+                    f"👤 الاسم: {user.full_name or 'بدون اسم'}\n"
+                    f"🔗 اليوزر: @{user.username if user.username else 'لا يوجد'}\n"
+                    f"🆔 الآيدي: <a href='tg://user?id={user.id}'><code>{user.id}</code></a>"
+                )
+                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_notify, parse_mode="HTML")
+            except Exception as e:
+                logging.error(f"Failed to send admin notification: {e}")
+        else:
+            users[uid]["last_active"] = now_str
+            users[uid]["name"] = user.full_name or "بدون اسم"
+            if user.username:
+                users[uid]["username"] = user.username
+            users[uid]["status"] = "active"
 
-    save_users(users)
+        save_users(users)
+    except Exception as e:
+        logging.error(f"Error in update_user_activity: {e}")
 
 def increment_user_usage(user_id):
-    users = load_users()
-    uid = str(user_id)
-    if uid in users:
-        users[uid]["usage_count"] = users[uid].get("usage_count", 0) + 1
-        users[uid]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        save_users(users)
-    else:
-        users[uid] = {
-            "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "name": f"مستخدم {uid}",
-            "username": "",
-            "usage_count": 1,
-            "status": "active"
-        }
-        save_users(users)
+    try:
+        users = load_users()
+        uid = str(user_id)
+        if uid in users:
+            users[uid]["usage_count"] = users[uid].get("usage_count", 0) + 1
+            users[uid]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_users(users)
+        else:
+            users[uid] = {
+                "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "name": f"مستخدم {uid}",
+                "username": "",
+                "usage_count": 1,
+                "status": "active"
+            }
+            save_users(users)
+    except Exception as e:
+        logging.error(f"Error in increment_user_usage: {e}")
 
 def is_user_blocked(user) -> bool:
     if user.username and user.username.lower() == BLOCKED_USERNAME.lower():
@@ -154,8 +195,8 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'geo_bypass': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        'extractor_args': {'youtube': {'player_client': ['android', 'web', 'mweb']}},
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
 
     if os.path.exists('cookies.txt'):
@@ -168,7 +209,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         })
     else:
         ydl_opts.update({
-            'format': 'best[ext=mp4]/best',
+            'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best/bestvideo+bestaudio',
             'merge_output_format': 'mp4',
         })
 
@@ -183,7 +224,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         
         if not os.path.exists(filename):
             base, _ = os.path.splitext(filename)
-            for ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.webm']:
+            for ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.webm', '.mkv']:
                 if os.path.exists(base + ext):
                     filename = base + ext
                     break
@@ -207,7 +248,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     start_msg = (
         "مرحباً بك عزيزي في بوت تحميل الوسائط 📥\n\n"
-        "أداة بسيطة وسريعة لتحميل الفيديوهات والملفات الصوتية بدقة عالية وبدون إعلانات.\n\n"
+        "أداة سريعة لتحميل الفيديوهات والملفات الصوتية من يوتيوب، تيك توك، انستغرام وباقي المنصات بدقة عالية وبدون إعلانات.\n\n"
         "أرسل الرابط المطلوب أو ابدأ الاستخدام عبر الزر أدناه."
     )
     keyboard = [[InlineKeyboardButton("🚀 ابدأ الاستخدام الآن", callback_data="start_guide")]]
@@ -220,13 +261,13 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     users = load_users()
     all_target_uids = set(users.keys())
-    for uid in FIXED_USERS:
+    for uid in FIXED_USERS.keys():
         all_target_uids.add(str(uid))
     
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإضافة مزايا جديدة لخدمتكم ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإضافة حماية وتحسينات شاملة لروابط يوتيوب وتيك توك ⚡"
     
     success_count = 0
     fail_count = 0
@@ -272,7 +313,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "شكراً لاستخدامك البوت ❤️\n"
                     "لأي مقترح تواصل مع المطور: @xlxm3"
                 )
-                await update.message.reply_video(video=open(trimmed_path, 'rb'), caption=completion_caption, parse_mode="HTML", supports_streaming=True)
+                with open(trimmed_path, 'rb') as f_trim:
+                    await update.message.reply_video(video=f_trim, caption=completion_caption, parse_mode="HTML", supports_streaming=True)
                 await status_msg.delete()
             except Exception as e:
                 logging.error(f"Trim Error: {e}")
@@ -307,13 +349,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
-                await update.message.reply_photo(photo=open(file_path, 'rb'), caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
+                with open(file_path, 'rb') as f_photo:
+                    await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             else:
-                await update.message.reply_video(video=open(file_path, 'rb'), caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
+                with open(file_path, 'rb') as f_vid:
+                    await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Search Error: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+        finally:
+            if file_path and os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
         return
 
     match = re.search(URL_PATTERN, text)
@@ -323,6 +371,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = None
         try:
             file_path = download_media(query_val, is_audio=False, is_search=False)
+            
+            if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط (قد يكون منشور صور، أو محتوى محمي).\nتواصل مع المطور: @xlxm3")
+                return
+
             msg_id_key = str(update.message.message_id)
             message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
             
@@ -340,22 +393,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
-                await update.message.reply_photo(photo=open(file_path, 'rb'), caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
+                with open(file_path, 'rb') as f_photo:
+                    await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             else:
-                await update.message.reply_video(video=open(file_path, 'rb'), caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
+                with open(file_path, 'rb') as f_vid:
+                    await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
-            logging.error(f"Download Error: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            logging.error(f"Download Error for {query_val}: {e}")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+        finally:
+            if file_path and os.path.exists(file_path):
+                try: os.remove(file_path)
+                except: pass
         return
 
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
-        report = f"📊 <b>قائمة جميع المستخدمين المسجلين في البوت:</b>\n\n"
+        report = f"📊 <b>قائمة جميع المستخدمين (المسجلين والثابتين):</b>\n\n"
         
         all_uids = set(users.keys())
-        for uid in FIXED_USERS: all_uids.add(str(uid))
+        for uid in FIXED_USERS.keys(): all_uids.add(str(uid))
         
         now_time = datetime.now()
         count = 0
@@ -369,9 +428,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_override = u_info.get("status", "active")
             
             status_icon = "🔴"
-            if status_override == "blocked":
-                status_icon = "🔴"
-            elif last_active_str != "غير متوفر":
+            if last_active_str != "غير متوفر" and last_active_str != "مُسجل مسبقاً":
                 try:
                     diff_seconds = (now_time - datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")).total_seconds()
                     if diff_seconds <= 30:
@@ -380,7 +437,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         status_icon = "🟡"
                 except:
                     status_icon = "🟡"
+            elif last_active_str == "مُسجل مسبقاً":
+                status_icon = "⚪"
             
+            # رابط مباشر للآيدي والحساب حتى لو لم يتفاعل
             if u_username:
                 profile_link = f"<a href='https://t.me/{u_username}'>{u_name} (@{u_username})</a>"
             else:
@@ -388,7 +448,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             report += (
                 f"<b>{count}.</b> {profile_link} {status_icon}\n"
-                f"🆔 الآيدي: <code>{uid_str}</code>\n"
+                f"🆔 الآيدي: <a href='tg://user?id={uid_str}'><code>{uid_str}</code></a>\n"
                 f"📥 التنزيلات: <code>{usage_cnt}</code> | 🕒 النشاط: {last_active_str}\n"
                 "-------------------\n"
             )
@@ -404,7 +464,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
 
     if data == "start_guide":
-        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن وسأقوم بتحميله فوراً 📥")
+        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
         return
 
     if data in ["cancel_search", "cancel_trim"]:
@@ -472,7 +532,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             local_file = download_media(q_val, is_audio=False, is_search=is_srch)
             up_path = upscale_video_resolution(local_file, res_type)
             
-            # التحقق من أن الملف موجود وصحيح قبل إرساله لمنع أي خطأ
             if not os.path.exists(up_path) or os.path.getsize(up_path) == 0:
                 await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو أو أن الملف غير موجود.")
                 return
@@ -480,7 +539,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             increment_downloads()
             increment_user_usage(user_id)
             
-            # كليشة توضيحية للمستخدم بأن الجودة عالية جداً وقد لا يعمل المعرض الداخلي لتيليجرام عليها
             caption = (
                 f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\n"
                 "⚠️ <b>ملاحظة هامة:</b> نظراً لأن دقة الفيديو عالية جداً، قد لا يعمل مشغل تيليجرام الداخلي لدعم هذا الحجم؛ "
@@ -556,7 +614,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Callback Error in data '{data}': {e}")
         await query.message.reply_text(
             "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
-            "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور لاكتشاف وحل المشكلة:\n"
+            "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
             "@xlxm3",
             parse_mode="HTML"
         )
@@ -577,5 +635,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تطبيق الكود النهائي مع التحقق من وجود الملفات والكليشة التوضيحية للجودات العالية...")
+    print("🚀 تم تحديث البوت بنظام دمج وحفظ المستخدمين الثابتين وتفعيل روابط الآيديات المباشرة...")
     app.run_polling(drop_pending_updates=True)
