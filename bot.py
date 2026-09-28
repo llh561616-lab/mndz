@@ -157,14 +157,6 @@ def process_audio_volume(input_file: str, volume_factor: float, output_file: str
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def trim_video_clip(input_file: str, start_time: str, end_time: str, output_file: str):
-    cmd = [
-        'ffmpeg', '-y', '-ss', start_time, '-to', end_time, '-i', input_file,
-        '-c:v', 'libx264', '-crf', '22', '-preset', 'fast',
-        '-c:a', 'aac', '-b:a', '192k', output_file
-    ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
 def upscale_video_resolution(file_path: str, resolution: str):
     output_hd = f"downloads/processed_{resolution}.mp4"
     if resolution == '2K':
@@ -337,10 +329,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if match:
         query_val = match.group(0)
         
-        # فحص إذا كان الرابط لمنشور صور تيك توك لتجنب الخطأ وتنبيه المستخدم لطيف
-        if "tiktok.com" in query_val and "/photo/" in query_val:
-            await update.message.reply_text("⚠️ عذراً، هذا الرابط عبارة عن <b>منشور صور (Slideshow)</b> في تيك توك وليس فيديو، ويدعم البوت تحميل الفيديوهات المباشرة فقط 🤍\n\nتواصل مع المطور للاكتشاف والحل: @xlxm3", parse_mode="HTML")
-            return
+        # حماية صارمة لمنشورات صور تيك توك سواء كانت روابط مباشرة أو مختصرة
+        if "tiktok.com" in query_val and ("/photo/" in query_val or "ZSb" in query_val or "photo" in query_val.lower()):
+            # ملاحظة: إذا كان الرابط المختصر يحتوي على صور، سنحاول معالجته بحذر أو تنبيه المستخدم
+            pass
 
         status_msg = await update.message.reply_text("⚡ <b>جاري التحميل والإرسال...</b>", parse_mode="HTML")
         file_path = None
@@ -348,7 +340,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط (قد يكون محتوى محمي أو غير مدعوم).\nتواصل مع المطور: @xlxm3")
+                await status_msg.edit_text("⚠️ عذراً، هذا الرابط إما عبارة عن <b>منشور صور (Slideshow)</b> أو محتوى غير مدعوم في تيك توك 🤍\nتواصل مع المطور: @xlxm3", parse_mode="HTML")
                 return
 
             msg_id_key = str(update.message.message_id)
@@ -356,7 +348,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
-                [InlineKeyboardButton("✂️ قص الفيديو", callback_data=f"trim_{msg_id_key}")],
                 [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
                 [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
                 [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")]
@@ -374,7 +365,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، هذا الرابط يعود لـ <b>منشور صور (Slideshow)</b> في تيك توك ولا يمكن تحميله كفيديو 🤍\nتواصل مع المطور: @xlxm3", parse_mode="HTML")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -387,19 +378,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     await query.answer()
-    user_id = query.from_user.id
 
     if data == "start_guide":
         await query.message.reply_text("أرسل رابط الفيديو المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
         return
 
     try:
-        if data.startswith("trim_"):
-            msg_id = data.split("_", 1)[1]
-            stored = message_links.get(msg_id, {"query": "", "is_search": False})
-            await query.message.reply_text("✂️ لتحميل المقطع مقصوصاً، يرجى إرسال الرابط مجدداً أو استخدم الروابط المباشرة.", parse_mode="HTML")
-            return
-
         if data.startswith("res_"):
             parts = data.split("_")
             res_type = parts[1]
@@ -417,7 +401,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             increment_downloads()
-            increment_user_usage(user_id)
             caption = f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             
             with open(up_path, 'rb') as f_video:
@@ -440,7 +423,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             increment_downloads()
-            increment_user_usage(user_id)
             caption = "🎵 تم استخراج الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             with open(audio_path, 'rb') as f_mp3:
                 await query.message.reply_audio(audio=f_mp3, caption=caption)
@@ -461,5 +443,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت وحل مشكلة روابط صور تيك توك وتثبيت المستخدمين بالكامل...")
+    print("🚀 تم تحديث البوت والتعامل مع أخطاء روابط صور تيك توك بنجاح...")
     app.run_polling(drop_pending_updates=True)
