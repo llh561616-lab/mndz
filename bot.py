@@ -186,7 +186,6 @@ def upscale_video_resolution(file_path: str, resolution: str):
     return file_path
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
-    # تم تعديل إعدادات التجاوز كلياً لتعمل بدون الحاجة لأي ملف كوكيز خارجي
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -197,10 +196,9 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'format': 'bestvideo+bestaudio/best',
         'merge_output_format': 'mp4',
         'extractor_args': {
-            'tiktok': {'app_info': True},
             'youtube': {'player_client': ['android', 'web']}
         },
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 
     if is_audio:
@@ -213,8 +211,12 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(target_query, download=True)
-        if 'entries' in info:
-            info = info['entries'][0]
+        if isinstance(info, dict) and 'entries' in info:
+            entries = info['entries']
+            if entries:
+                info = entries[0]
+            else:
+                raise Exception("No entries found")
 
         filename = ydl.prepare_filename(info)
         
@@ -271,7 +273,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإضافة حماية وتحسينات شاملة لروابط يوتيوب وتيك توك ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإصلاح مشكلة الـ bool وتحسين استقرار روابط تيك توك ويوتيوب ⚡"
     
     success_count = 0
     fail_count = 0
@@ -635,5 +637,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت وتعديل إعدادات التخطي بدون الحاجة لملفات خارجية...")
+    print("🚀 تم إصلاح مشكلة الـ bool وتحسين استقرار البوت بشكل كامل...")
     app.run_polling(drop_pending_updates=True)
