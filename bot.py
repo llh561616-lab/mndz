@@ -199,7 +199,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
             'youtube': {'player_client': ['android', 'web']},
             'tiktok': {'app_version': ['16.6.4']}
         },
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
 
     if is_audio:
@@ -211,7 +211,14 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
     target_query = f"ytsearch1:{query_str}" if is_search else query_str
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(target_query, download=True)
+        try:
+            info = ydl.extract_info(target_query, download=True)
+        except Exception as e:
+            error_str = str(e)
+            if "Unsupported URL" in error_str or "photo" in target_query:
+                raise Exception("عذراً، هذا الرابط خاص بـ (صور تيك توك) وليس فيديو، البوت يدعم الفيديوهات حالياً!")
+            raise e
+
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
             if entries:
@@ -235,7 +242,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                 return mp3_path
             return filename
 
-        if not filename.endswith('.mp4') and os.path.exists(filename):
+        if not filename.endswith('.mp4') and os.path.exists(filename) and not filename.endswith(('.jpg', '.png', '.webp', '.jpeg')):
             base, _ = os.path.splitext(filename)
             mp4_fixed = f"{base}.mp4"
             cmd = ['ffmpeg', '-y', '-i', filename, '-c:v', 'copy', '-c:a', 'aac', mp4_fixed]
@@ -364,7 +371,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Search Error: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            error_msg = str(e)
+            if "صور تيك توك" in error_msg:
+                await status_msg.edit_text(f"⚠️ {error_msg}")
+            else:
+                await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -408,7 +419,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط محمي أو غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            error_msg = str(e)
+            if "صور تيك توك" in error_msg:
+                await status_msg.edit_text(f"⚠️ {error_msg}")
+            else:
+                await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط محمي أو غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -615,12 +630,16 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Callback Error in data '{data}': {e}")
-        await query.message.reply_text(
-            "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
-            "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
-            "@xlxm3",
-            parse_mode="HTML"
-        )
+        error_msg = str(e)
+        if "صور تيك توك" in error_msg:
+            await query.message.reply_text(f"⚠️ {error_msg}")
+        else:
+            await query.message.reply_text(
+                "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
+                "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
+                "@xlxm3",
+                parse_mode="HTML"
+            )
 
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.pre_checkout_query.answer(ok=True)
