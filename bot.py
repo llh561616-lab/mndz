@@ -186,6 +186,7 @@ def upscale_video_resolution(file_path: str, resolution: str):
     return file_path
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
+    # تم تعديل إعدادات التجاوز كلياً لتعمل بدون الحاجة لأي ملف كوكيز خارجي
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -193,15 +194,14 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'geo_bypass': True,
-        # التعديل الجذري لضمان دمج أفضل فيديو مع أفضل صوت لمنع مشاكل الفيديوهات الصامتة
         'format': 'bestvideo+bestaudio/best',
         'merge_output_format': 'mp4',
-        'extractor_args': {'tiktok': {'web_api': 'v2'}, 'youtube': {'player_client': ['android', 'web', 'mweb']}},
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        'extractor_args': {
+            'tiktok': {'app_info': True},
+            'youtube': {'player_client': ['android', 'web']}
+        },
+        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
     }
-
-    if os.path.exists('cookies.txt'):
-        ydl_opts['cookiefile'] = 'cookies.txt'
 
     if is_audio:
         ydl_opts.update({
@@ -350,7 +350,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             increment_downloads()
             increment_user_usage(user.id)
-            caption_text = "تم التحميل بنجاح ✨ (مع الصوت بوضوح)\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
+            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 with open(file_path, 'rb') as f_photo:
@@ -371,25 +371,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الصوت والفيديو...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
         file_path = None
         try:
             file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await status_msg.edit_text("🎵 <b>هذا الرابط عبارة عن منشور صور، جاري استخراج الصوت MP3...</b>", parse_mode="HTML")
-                audio_path = download_media(query_val, is_audio=True, is_search=False)
-                
-                if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
-                    increment_downloads()
-                    increment_user_usage(user.id)
-                    with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="✨ تم استخراج نغمة التيك توك بنجاح!\n\nللدعم: @xlxm3")
-                    os.remove(audio_path)
-                else:
-                    await update.message.reply_text("⚠️ عذراً، لم نتمكن من العثور على محتوى في هذا الرابط.")
-                
-                await status_msg.delete()
+                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط.\nتواصل مع المطور: @xlxm3")
                 return
 
             msg_id_key = str(update.message.message_id)
@@ -406,7 +394,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             increment_downloads()
             increment_user_usage(user.id)
-            caption_text = "تم التحميل بنجاح ✨ (مع الصوت بوضوح)\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
+            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
 
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 with open(file_path, 'rb') as f_photo:
@@ -417,19 +405,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
-            try:
-                audio_path = download_media(query_val, is_audio=True, is_search=False)
-                if audio_path and os.path.exists(audio_path):
-                    increment_downloads()
-                    increment_user_usage(user.id)
-                    with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت بنجاح ❤️\n\nللدعم: @xlxm3")
-                    os.remove(audio_path)
-                    await status_msg.delete()
-                    return
-            except:
-                pass
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط محمي أو غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -659,5 +635,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت بنظام دمج وحفظ المستخدمين الثابتين وتفعيل روابط الآيديات المباشرة...")
+    print("🚀 تم تحديث البوت وتعديل إعدادات التخطي بدون الحاجة لملفات خارجية...")
     app.run_polling(drop_pending_updates=True)
