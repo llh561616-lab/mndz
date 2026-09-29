@@ -5,8 +5,8 @@ import logging
 import subprocess
 import asyncio
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
 import yt_dlp
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -36,6 +36,8 @@ USERS_FILE = "users_detailed.json"
 STATS_FILE = "stats.json"
 
 message_links = {}
+user_trim_state = {}
+user_search_mode = {}
 
 def load_users():
     users = {}
@@ -145,6 +147,24 @@ def is_user_blocked(user) -> bool:
         return True
     return False
 
+def process_audio_volume(input_file: str, volume_factor: float, output_file: str):
+    cmd = [
+        'ffmpeg', '-y', '-i', input_file,
+        '-filter:a', f'volume={volume_factor}',
+        '-c:v', 'copy',
+        '-c:a', 'aac', '-b:a', '192k',
+        output_file
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def trim_video_clip(input_file: str, start_time: str, end_time: str, output_file: str):
+    cmd = [
+        'ffmpeg', '-y', '-ss', start_time, '-to', end_time, '-i', input_file,
+        '-c:v', 'libx264', '-crf', '22', '-preset', 'fast',
+        '-c:a', 'aac', '-b:a', '192k', output_file
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 def upscale_video_resolution(file_path: str, resolution: str):
     output_hd = f"downloads/processed_{resolution}.mp4"
     if resolution == '2K':
@@ -165,7 +185,7 @@ def upscale_video_resolution(file_path: str, resolution: str):
         return output_hd
     return file_path
 
-def download_media(query_str: str, is_audio: bool = False):
+def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -173,10 +193,7 @@ def download_media(query_str: str, is_audio: bool = False):
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'geo_bypass': True,
-        # إجبار yt-dlp على دمج أفضل فيديو مع أفضل صوت معاً لضمان عدم نزول الفيديو صامتاً
-        'format': 'bestvideo+bestaudio/best',
-        'merge_output_format': 'mp4',
-        'extractor_args': {'tiktok': {'web_api': 'v2'}, 'youtube': {'player_client': ['android', 'web', 'mweb']}},
+        'extractor_args': {'youtube': {'player_client': ['android', 'web', 'mweb']}},
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
 
@@ -188,9 +205,16 @@ def download_media(query_str: str, is_audio: bool = False):
             'format': 'bestaudio/best',
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         })
+    else:
+        ydl_opts.update({
+            'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best/bestvideo+bestaudio',
+            'merge_output_format': 'mp4',
+        })
+
+    target_query = f"ytsearch1:{query_str}" if is_search else query_str
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query_str, download=True)
+        info = ydl.extract_info(target_query, download=True)
         if 'entries' in info:
             info = info['entries'][0]
 
@@ -210,15 +234,6 @@ def download_media(query_str: str, is_audio: bool = False):
                 return mp3_path
             return filename
 
-        # التأكد من امتداد mp4 للدمج السليم
-        if not filename.endswith('.mp4') and os.path.exists(filename):
-            base, _ = os.path.splitext(filename)
-            mp4_fixed = f"{base}.mp4"
-            cmd = ['ffmpeg', '-y', '-i', filename, '-c:v', 'copy', '-c:a', 'aac', mp4_fixed]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if os.path.exists(mp4_fixed):
-                return mp4_fixed
-
         return filename
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -235,6 +250,35 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("🚀 ابدأ الاستخدام الآن", callback_data="start_guide")]]
     await update.message.reply_text(start_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id != ADMIN_ID:
+        return
+    
+    users = load_users()
+    all_target_uids = set(users.keys())
+    for uid in FIXED_USERS.keys():
+        all_target_uids.add(str(uid))
+    
+    if context.args:
+        broadcast_text = " ".join(context.args)
+    else:
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحويل منشورات صور تيك توك (السلايد شو) إلى ملفات صوتية MP3 مباشرة ⚡"
+    
+    success_count = 0
+    fail_count = 0
+    status_msg = await update.message.reply_text(f"🚀 جاري الإرسال إلى {len(all_target_uids)} مستخدم...")
+
+    for uid_str in all_target_uids:
+        try:
+            await context.bot.send_message(chat_id=int(uid_str), text=broadcast_text, parse_mode="HTML")
+            success_count += 1
+            await asyncio.sleep(0.1)
+        except Exception:
+            fail_count += 1
+
+    await status_msg.edit_text(f"✅ تمت الإذاعة بنجاح!\n- ناجح: {success_count}\n- فاشل: {fail_count}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if is_user_blocked(user):
@@ -247,59 +291,90 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "مستخدمين":
         if user.id != ADMIN_ID: return
         users = load_users()
-        report = f"📊 <b>قائمة جميع المستخدمين:</b>\n\n"
+        report = f"📊 <b>قائمة جميع المستخدمين (المسجلين والثابتين):</b>\n\n"
+        
         all_uids = set(users.keys())
         for uid in FIXED_USERS.keys(): all_uids.add(str(uid))
         
+        now_time = datetime.now()
         count = 0
         for uid_str in all_uids:
             count += 1
             u_info = users.get(uid_str, {})
             u_name = u_info.get("name", f"مستخدم {uid_str}")
+            u_username = u_info.get("username", "")
+            last_active_str = u_info.get("last_active", "غير متوفر")
             usage_cnt = u_info.get("usage_count", 0)
-            report += f"<b>{count}.</b> {u_name} (<code>{uid_str}</code>) - التنزيلات: {usage_cnt}\n"
-        await update.message.reply_text(report, parse_mode="HTML")
+            
+            status_icon = "🔴"
+            if last_active_str != "غير متوفر" and last_active_str != "مُسجل مسبقاً":
+                try:
+                    diff_seconds = (now_time - datetime.strptime(last_active_str, "%Y-%m-%d %H:%M:%S")).total_seconds()
+                    if diff_seconds <= 30:
+                        status_icon = "🟢"
+                    else:
+                        status_icon = "🟡"
+                except:
+                    status_icon = "🟡"
+            elif last_active_str == "مُسجل مسبقاً":
+                status_icon = "⚪"
+            
+            if u_username:
+                profile_link = f"<a href='https://t.me/{u_username}'>{u_name} (@{u_username})</a>"
+            else:
+                profile_link = f"<a href='tg://user?id={uid_str}'>{u_name}</a>"
+            
+            report += (
+                f"<b>{count}.</b> {profile_link} {status_icon}\n"
+                f"🆔 الآيدي: <a href='tg://user?id={uid_str}'><code>{uid_str}</code></a>\n"
+                f"📥 التنزيلات: <code>{usage_cnt}</code> | 🕒 النشاط: {last_active_str}\n"
+                "-------------------\n"
+            )
+        await update.message.reply_text(report, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الصوت والفيديو...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
         file_path = None
         
         try:
-            file_path = download_media(query_val, is_audio=False)
+            # محاولة التحميل كفيديو افتراضياً
+            file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                # إذا كان منشور صور (Slideshow)، اسحب الصوت تلقائياً
-                await status_msg.edit_text("🎵 <b>هذا الرابط عبارة عن منشور صور، جاري استخراج الصوت MP3...</b>", parse_mode="HTML")
-                audio_path = download_media(query_val, is_audio=True)
+                # إذا فشل لأنه منشور صور (Slideshow)، نقوم فوراً بتحويله واستخراج الصوت الخاص به وإرساله للمستخدم كملف MP3 كما طلبت تماماً!
+                await status_msg.edit_text("🎵 <b>هذا الرابط عبارة عن منشور صور (Slideshow)، جاري استخراج وتحويل الموسيقى المصاحبة إلى ملف صوتي MP3...</b>", parse_mode="HTML")
+                audio_path = download_media(query_val, is_audio=True, is_search=False)
                 
                 if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
                     increment_downloads()
                     increment_user_usage(user.id)
+                    caption_audio = "✨ <b>تم استخراج نغمة منشور تيك توك بنجاح!</b>\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
                     with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="✨ تم استخراج نغمة التيك توك بنجاح!\n\nللدعم: @xlxm3")
+                        await update.message.reply_audio(audio=f_aud, caption=caption_audio, parse_mode="HTML")
                     os.remove(audio_path)
                 else:
-                    await update.message.reply_text("⚠️ عذراً، لم نتمكن من العثور على محتوى في هذا الرابط.")
+                    await update.message.reply_text("⚠️ عذراً، لم نتمكن من العثور على صوت أو محتوى في هذا الرابط.")
                 
                 await status_msg.delete()
                 return
 
             msg_id_key = str(update.message.message_id)
-            message_links[msg_id_key] = {"query": query_val, "file_path": file_path}
+            message_links[msg_id_key] = {"query": query_val, "is_search": False, "file_path": file_path}
             
             keyboard = [
                 [InlineKeyboardButton("🎧 تحويل إلى MP3", callback_data=f"audio_{msg_id_key}")],
                 [InlineKeyboardButton("🌟 دقة 2K", callback_data=f"res_2K_{msg_id_key}"), InlineKeyboardButton("🚀 دقة 4K", callback_data=f"res_4K_{msg_id_key}")],
-                [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")]
+                [InlineKeyboardButton("💎 دقة 1400p", callback_data=f"res_1400_{msg_id_key}")],
+                [InlineKeyboardButton("🎚️ التحكم بالصوت", callback_data=f"volmenu_{msg_id_key}")]
             ]
             increment_downloads()
             increment_user_usage(user.id)
-            caption_text = "تم التحميل بنجاح ✨ (مع الصوت بوضوح)\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
+            caption_text = "تم التحميل بنجاح ✨\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
 
-            if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 with open(file_path, 'rb') as f_photo:
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             else:
@@ -307,27 +382,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
-            logging.error(f"Download Error: {e}")
+            logging.error(f"Download Error for {query_val}: {e}")
             try:
-                audio_path = download_media(query_val, is_audio=True)
+                # معالجة احتياطية فورية لاستخراج الصوت إذا حدث أي استثناء لروابط السلايد شو
+                audio_path = download_media(query_val, is_audio=True, is_search=False)
                 if audio_path and os.path.exists(audio_path):
                     increment_downloads()
                     increment_user_usage(user.id)
                     with open(audio_path, 'rb') as f_aud:
-                        await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت بنجاح ❤️\n\nللدعم: @xlxm3")
+                        await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج نغمة منشور تيك توك بنجاح ❤️\n\nللدعم: @xlxm3")
                     os.remove(audio_path)
                     await status_msg.delete()
                     return
             except:
                 pass
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن الرابط غير مدعوم!\nتواصل مع المطور: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن الرابط غير مدعوم حالياً!\nتواصل مع المطور: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
                 except: pass
         return
 
-    await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر صحيح.")
+    await update.message.reply_text("⚠️ يرجى إرسال رابط مباشر أو كلمة مستخدمين.")
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -336,7 +412,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
 
     if data == "start_guide":
-        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن وسأقوم بتحميله مع الصوت بدقة عالية 📥")
+        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
         return
 
     try:
@@ -349,15 +425,19 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stored = message_links.get(msg_id, {})
             q_val = stored.get("query", "")
             
-            local_file = download_media(q_val, is_audio=False)
+            local_file = download_media(q_val, is_audio=False, is_search=False)
             up_path = upscale_video_resolution(local_file, res_type)
+            
+            if not os.path.exists(up_path) or os.path.getsize(up_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو.")
+                return
             
             increment_downloads()
             increment_user_usage(user_id)
-            caption = f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\nللدعم: @xlxm3"
+            caption = f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             
             with open(up_path, 'rb') as f_video:
-                await query.message.reply_video(video=f_video, caption=caption, parse_mode="HTML", supports_streaming+True if False else True)
+                await query.message.reply_video(video=f_video, caption=caption, parse_mode="HTML", supports_streaming=True)
                 
             await status_msg.delete()
             if local_file and os.path.exists(local_file): os.remove(local_file)
@@ -370,14 +450,21 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stored = message_links.get(msg_id, {})
             q_val = stored.get("query", "")
             
-            audio_path = download_media(q_val, is_audio=True)
+            audio_path = download_media(q_val, is_audio=True, is_search=False)
+            if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+                await status_msg.edit_text("⚠️ عذراً، فشل استخراج الملف الصوتي.")
+                return
+            
             increment_downloads()
             increment_user_usage(user_id)
+            caption = "🎵 تم استخراج الصوت بنجاح!\n\nشكراً لاستخدامك البوت ❤️\nللدعم تواصل مع المطور: @xlxm3"
             with open(audio_path, 'rb') as f_mp3:
-                await query.message.reply_audio(audio=f_mp3, caption="🎵 تم استخراج الصوت بنجاح!\n\nللدعم: @xlxm3")
+                await query.message.reply_audio(audio=f_mp3, caption=caption)
+                
             await status_msg.delete()
             if audio_path and os.path.exists(audio_path): os.remove(audio_path)
             return
+
     except Exception as e:
         logging.error(f"Callback Error: {e}")
         await query.message.reply_text("⚠️ حدث خطأ أثناء التنفيذ، تواصل مع المطور: @xlxm3")
@@ -386,8 +473,9 @@ if __name__ == '__main__':
     if not os.path.exists('downloads'): os.makedirs('downloads')
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 البوت يعمل الآن مع إجبار دمج الصوت والفيديو ومعالجة الروابط بنجاح...")
+    print("🚀 البوت يعمل بكامل مميزاته وقائمة مستخدميه وأزراره وتحويل روابط الصور إلى MP3 مباشرة...")
     app.run_polling(drop_pending_updates=True)
