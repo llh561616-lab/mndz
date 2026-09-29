@@ -193,10 +193,11 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'geo_bypass': True,
-        'format': 'bestvideo+bestaudio/best',
+        'format': 'bestvideo+bestaudio/best/best',
         'merge_output_format': 'mp4',
         'extractor_args': {
-            'youtube': {'player_client': ['android', 'web']}
+            'youtube': {'player_client': ['android', 'web']},
+            'tiktok': {'app_version': ['16.6.4']}
         },
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -637,5 +638,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم إصلاح مشكلة الـ bool وتحسين استقرار البوت بشكل كامل...")
+    print("🚀 تم تحديث البوت وحل مشكلة روابط تيك توك بالكامل...")
     app.run_polling(drop_pending_updates=True)
