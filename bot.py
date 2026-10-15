@@ -199,7 +199,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
             'youtube': {'player_client': ['android', 'web']},
             'tiktok': {'app_version': ['16.6.4']}
         },
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 
     if is_audio:
@@ -216,8 +216,15 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         except Exception as e:
             error_str = str(e)
             if "Unsupported URL" in error_str or "photo" in target_query:
-                raise Exception("عذراً، هذا الرابط خاص بـ (صور تيك توك) وليس فيديو، البوت يدعم الفيديوهات حالياً!")
-            raise e
+                ydl_opts_audio = ydl_opts.copy()
+                ydl_opts_audio.update({
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+                })
+                with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_aud:
+                    info = ydl_aud.extract_info(target_query, download=True)
+            else:
+                raise e
 
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
@@ -230,7 +237,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         
         if not os.path.exists(filename):
             base, _ = os.path.splitext(filename)
-            for ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.webm', '.mkv']:
+            for ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.webm', '.mkv', '.mp3']:
                 if os.path.exists(base + ext):
                     filename = base + ext
                     break
@@ -242,7 +249,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                 return mp3_path
             return filename
 
-        if not filename.endswith('.mp4') and os.path.exists(filename) and not filename.endswith(('.jpg', '.png', '.webp', '.jpeg')):
+        if not filename.endswith('.mp4') and os.path.exists(filename) and not filename.endswith(('.jpg', '.png', '.webp', '.jpeg', '.mp3')):
             base, _ = os.path.splitext(filename)
             mp4_fixed = f"{base}.mp4"
             cmd = ['ffmpeg', '-y', '-i', filename, '-c:v', 'copy', '-c:a', 'aac', mp4_fixed]
@@ -365,17 +372,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 with open(file_path, 'rb') as f_photo:
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
+            elif file_path.lower().endswith('.mp3'):
+                with open(file_path, 'rb') as f_aud:
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت من المنشور بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Search Error: {e}")
-            error_msg = str(e)
-            if "صور تيك توك" in error_msg:
-                await status_msg.edit_text(f"⚠️ {error_msg}")
-            else:
-                await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن المحتوى غير مدعوم!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -413,17 +419,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.avif')):
                 with open(file_path, 'rb') as f_photo:
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
+            elif file_path.lower().endswith('.mp3'):
+                with open(file_path, 'rb') as f_aud:
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت والموسيقى من منشور تيك توك بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
-            error_msg = str(e)
-            if "صور تيك توك" in error_msg:
-                await status_msg.edit_text(f"⚠️ {error_msg}")
-            else:
-                await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط محمي أو غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط محمي أو غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -630,16 +635,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Callback Error in data '{data}': {e}")
-        error_msg = str(e)
-        if "صور تيك توك" in error_msg:
-            await query.message.reply_text(f"⚠️ {error_msg}")
-        else:
-            await query.message.reply_text(
-                "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
-                "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
-                "@xlxm3",
-                parse_mode="HTML"
-            )
+        await query.message.reply_text(
+            "⚠️ **عذراً، حدث خطأ أثناء تنفيذ العملية.**\n\n"
+            "يرجى المحاولة لاحقاً، وإذا تكررت المشكلة يرجى التواصل مع المطور للاكتشاف والحل:\n"
+            "@xlxm3",
+            parse_mode="HTML"
+        )
 
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.pre_checkout_query.answer(ok=True)
@@ -657,5 +658,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت وحل مشكلة روابط تيك توك بالكامل...")
+    print("🚀 تم تحديث البوت ودعم تحميل صور وفيديوهات تيك توك الموسيقية بنجاح...")
     app.run_polling(drop_pending_updates=True)
