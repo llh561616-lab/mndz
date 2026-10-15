@@ -186,37 +186,35 @@ def upscale_video_resolution(file_path: str, resolution: str):
         return output_hd
     return file_path
 
-def download_tiktok_photo_or_audio(url: str):
+# الموجه الذكي (Router) لفحص نوع الرابط قبل دخوله لأي مكتبة
+def fetch_tiktok_photo_direct(url: str):
     try:
         api_url = f"https://tikwm.com/api/?url={url}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(api_url, headers=headers, timeout=10)
         data = response.json()
-        
         if data.get("code") == 0:
             info = data.get("data", {})
-            music_url = info.get("music")
-            play_url = info.get("play")
-            
-            target_download_url = music_url if music_url else play_url
-            if target_download_url:
-                res = requests.get(target_download_url, headers=headers, timeout=15)
-                out_path = "downloads/tiktok_media.mp3" if music_url else "downloads/tiktok_media.mp4"
+            media_url = info.get("music") or info.get("play")
+            if media_url:
+                res = requests.get(media_url, headers=headers, timeout=15)
+                out_path = "downloads/tiktok_slide.mp3" if info.get("music") else "downloads/tiktok_slide.mp4"
                 with open(out_path, 'wb') as f:
                     f.write(res.content)
                 if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
                     return out_path
     except Exception as e:
-        logging.error(f"TikWM API Error: {e}")
+        logging.error(f"Router API Error: {e}")
     return None
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
-    # معالجة ذكية ومستقلة لروابط صور تيك توك عبر الـ API
+    # فحص الرابط مباشرة هل هو صور تيك توك؟
     if '/photo/' in query_str or ('tiktok.com' in query_str and 'photo' in query_str):
-        res_file = download_tiktok_photo_or_audio(query_str)
-        if res_file:
-            return res_file
+        file_result = fetch_tiktok_photo_direct(query_str)
+        if file_result:
+            return file_result
 
+    # إذا كان فيديو عادي، يعبر للمكتبة الأساسية مالتنا
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -305,7 +303,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع روابط تيك توك وصور السلايد شو بنجاح ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإضافة الموجه الذكي لروابط تيك توك بنجاح ⚡"
     
     success_count = 0
     fail_count = 0
@@ -675,5 +673,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت وتفعيل نظام معالجة روابط صور تيك توك الذكي...")
+    print("🚀 تم تحديث البوت وإضافة الموجه الذكي لروابط تيك توك بنجاح...")
     app.run_polling(drop_pending_updates=True)
