@@ -214,17 +214,14 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         try:
             info = ydl.extract_info(target_query, download=True)
         except Exception as e:
-            error_str = str(e)
-            if "Unsupported URL" in error_str or "photo" in target_query:
-                ydl_opts_audio = ydl_opts.copy()
-                ydl_opts_audio.update({
-                    'format': 'bestaudio/best',
-                    'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-                })
-                with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_aud:
-                    info = ydl_aud.extract_info(target_query, download=True)
-            else:
-                raise e
+            # تم إزالة فحص الـ photo نهائياً، وإذا حدث أي خطأ بالصور سيتم سحبها مباشرة كملف صوتي وموسيقى بدون أي رفض
+            ydl_opts_audio = ydl_opts.copy()
+            ydl_opts_audio.update({
+                'format': 'bestaudio/best',
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+            })
+            with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_aud:
+                info = ydl_aud.extract_info(target_query, download=True)
 
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
@@ -288,7 +285,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وإصلاح مشكلة الـ bool وتحسين استقرار روابط تيك توك ويوتيوب ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع منشورات تيك توك بنجاح ⚡"
     
     success_count = 0
     fail_count = 0
@@ -374,7 +371,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت من المنشور بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الوسائط بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -397,7 +394,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على فيديو صالح في هذا الرابط.\nتواصل مع المطور: @xlxm3")
+                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على محتوى صالح في هذا الرابط.\nتواصل مع المطور: @xlxm3")
                 return
 
             msg_id_key = str(update.message.message_id)
@@ -421,7 +418,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الصوت والموسيقى من منشور تيك توك بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل المقطع (الصوت والموسيقى) بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -658,5 +655,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت ودعم تحميل صور وفيديوهات تيك توك الموسيقية بنجاح...")
+    print("🚀 تم تحديث البوت ودعم جميع أنواع روابط تيك توك بنجاح...")
     app.run_polling(drop_pending_updates=True)
