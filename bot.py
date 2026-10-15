@@ -14,7 +14,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 BOT_TOKEN = "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE"
 URL_PATTERN = r'https?://[^\s]+'
-ADMIN_ID = 8839862955
+ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
 
 FIXED_USERS = {
     938974602: {"name": "مستخدم 1", "username": ""},
@@ -187,7 +187,6 @@ def upscale_video_resolution(file_path: str, resolution: str):
     return file_path
 
 def download_tiktok_photo_or_audio(url: str):
-    # استخدام API عام مجاني وسريع لجلب روابط الوسائط الخاصة بتيك توك (سلايد شو / صور / صوت) وتجاوز قيود yt-dlp
     try:
         api_url = f"https://tikwm.com/api/?url={url}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -196,7 +195,6 @@ def download_tiktok_photo_or_audio(url: str):
         
         if data.get("code") == 0:
             info = data.get("data", {})
-            # محاولة جلب رابط الموسيقى أو الفيديو المدمج
             music_url = info.get("music")
             play_url = info.get("play")
             
@@ -213,6 +211,7 @@ def download_tiktok_photo_or_audio(url: str):
     return None
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
+    # معالجة ذكية ومستقلة لروابط صور تيك توك عبر الـ API
     if '/photo/' in query_str or ('tiktok.com' in query_str and 'photo' in query_str):
         res_file = download_tiktok_photo_or_audio(query_str)
         if res_file:
@@ -244,7 +243,6 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(target_query, download=True)
-
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
             if entries:
@@ -307,7 +305,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وحل مشكلة روابط تيك توك والصور نهائياً ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع روابط تيك توك وصور السلايد شو بنجاح ⚡"
     
     success_count = 0
     fail_count = 0
@@ -393,7 +391,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل الصوت الموسيقي بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل الملف بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -440,7 +438,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل المقطع الموسيقي بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل ملف الوسائط/الموسيقى بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -677,5 +675,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت بحل نهائي وجذري لتحميل صور وموسيقى تيك توك...")
+    print("🚀 تم تحديث البوت وتفعيل نظام معالجة روابط صور تيك توك الذكي...")
     app.run_polling(drop_pending_updates=True)
