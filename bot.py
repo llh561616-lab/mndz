@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 import asyncio
+import requests
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
@@ -13,7 +14,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 BOT_TOKEN = "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE"
 URL_PATTERN = r'https?://[^\s]+'
-ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
+ADMIN_ID = 8839862955
 
 FIXED_USERS = {
     938974602: {"name": "مستخدم 1", "username": ""},
@@ -185,10 +186,38 @@ def upscale_video_resolution(file_path: str, resolution: str):
         return output_hd
     return file_path
 
+def download_tiktok_photo_or_audio(url: str):
+    # استخدام API عام مجاني وسريع لجلب روابط الوسائط الخاصة بتيك توك (سلايد شو / صور / صوت) وتجاوز قيود yt-dlp
+    try:
+        api_url = f"https://tikwm.com/api/?url={url}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(api_url, headers=headers, timeout=10)
+        data = response.json()
+        
+        if data.get("code") == 0:
+            info = data.get("data", {})
+            # محاولة جلب رابط الموسيقى أو الفيديو المدمج
+            music_url = info.get("music")
+            play_url = info.get("play")
+            
+            target_download_url = music_url if music_url else play_url
+            if target_download_url:
+                res = requests.get(target_download_url, headers=headers, timeout=15)
+                out_path = "downloads/tiktok_media.mp3" if music_url else "downloads/tiktok_media.mp4"
+                with open(out_path, 'wb') as f:
+                    f.write(res.content)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                    return out_path
+    except Exception as e:
+        logging.error(f"TikWM API Error: {e}")
+    return None
+
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
-    # الفحص المسبق: إذا كان الرابط يحتوي على مسار الصور في تيك توك، نوجهه مباشرة لسحب الصوت
-    is_tiktok_photo = ('/photo/' in query_str) or ('tiktok.com' in query_str and '/photo/' in query_str)
-    
+    if '/photo/' in query_str or ('tiktok.com' in query_str and 'photo' in query_str):
+        res_file = download_tiktok_photo_or_audio(query_str)
+        if res_file:
+            return res_file
+
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -196,7 +225,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'geo_bypass': True,
-        'format': 'bestaudio/best' if (is_audio or is_tiktok_photo) else 'bestvideo+bestaudio/best/best',
+        'format': 'bestvideo+bestaudio/best/best',
         'merge_output_format': 'mp4',
         'extractor_args': {
             'youtube': {'player_client': ['android', 'web']},
@@ -205,28 +234,16 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 
-    if is_audio or is_tiktok_photo:
+    if is_audio:
         ydl_opts.update({
+            'format': 'bestaudio/best',
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         })
 
     target_query = f"ytsearch1:{query_str}" if is_search else query_str
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(target_query, download=True)
-        except Exception as e:
-            # محاولة أخيرة بديلة لاستخراج الصوت في حال فشل أي شيء آخر
-            ydl_opts_audio = {
-                'outtmpl': 'downloads/%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
-                'nocheckcertificate': True,
-                'format': 'bestaudio/best',
-                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            }
-            with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_aud:
-                info = ydl_aud.extract_info(target_query, download=True)
+        info = ydl.extract_info(target_query, download=True)
 
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
@@ -244,7 +261,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                     filename = base + ext
                     break
 
-        if is_audio or is_tiktok_photo:
+        if is_audio:
             base, _ = os.path.splitext(filename)
             mp3_path = f"{base}.mp3"
             if os.path.exists(mp3_path):
@@ -290,7 +307,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع روابط تيك توك وفيديوهات الصور مع موسيقاها بنجاح ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت وحل مشكلة روابط تيك توك والصور نهائياً ⚡"
     
     success_count = 0
     fail_count = 0
@@ -376,7 +393,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج وتحميل الموسيقى بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل الصوت الموسيقي بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -393,7 +410,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط (فيديو أو موسيقى)...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
         file_path = None
         try:
             file_path = download_media(query_val, is_audio=False, is_search=False)
@@ -660,5 +677,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت ودعم جميع روابط تيك توك وصور السلايد شو بنجاح...")
+    print("🚀 تم تحديث البوت بحل نهائي وجذري لتحميل صور وموسيقى تيك توك...")
     app.run_polling(drop_pending_updates=True)
