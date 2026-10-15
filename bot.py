@@ -202,7 +202,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
 
-    if is_audio:
+    if is_audio or ('/photo/' in query_str):
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
@@ -214,12 +214,15 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
         try:
             info = ydl.extract_info(target_query, download=True)
         except Exception as e:
-            # تم إزالة فحص الـ photo نهائياً، وإذا حدث أي خطأ بالصور سيتم سحبها مباشرة كملف صوتي وموسيقى بدون أي رفض
-            ydl_opts_audio = ydl_opts.copy()
-            ydl_opts_audio.update({
+            # معالجة ذكية لأي رابط صور تيك توك وتحويله مباشرة لاستخراج محتواه الصوتي
+            ydl_opts_audio = {
+                'outtmpl': 'downloads/%(id)s.%(ext)s',
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
                 'format': 'bestaudio/best',
                 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            })
+            }
             with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_aud:
                 info = ydl_aud.extract_info(target_query, download=True)
 
@@ -239,7 +242,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                     filename = base + ext
                     break
 
-        if is_audio:
+        if is_audio or ('/photo/' in query_str):
             base, _ = os.path.splitext(filename)
             mp3_path = f"{base}.mp3"
             if os.path.exists(mp3_path):
@@ -285,7 +288,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع منشورات تيك توك بنجاح ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع روابط تيك توك وفيديوهات الصور بنجاح ⚡"
     
     success_count = 0
     fail_count = 0
@@ -371,7 +374,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الوسائط بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج الوسائط والموسيقى بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
@@ -388,7 +391,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط (فيديو أو صوت)...</b>", parse_mode="HTML")
         file_path = None
         try:
             file_path = download_media(query_val, is_audio=False, is_search=False)
@@ -655,5 +658,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت ودعم جميع أنواع روابط تيك توك بنجاح...")
+    print("🚀 تم تحديث البوت ودعم تحميل جميع روابط تيك توك بنجاح...")
     app.run_polling(drop_pending_updates=True)
