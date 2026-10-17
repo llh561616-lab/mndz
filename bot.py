@@ -5,6 +5,8 @@ import logging
 import subprocess
 import asyncio
 import requests
+import tempfile
+import uuid
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
@@ -12,7 +14,7 @@ import yt_dlp
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 URL_PATTERN = r'https?://[^\s]+'
 ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
 
@@ -186,25 +188,134 @@ def upscale_video_resolution(file_path: str, resolution: str):
         return output_hd
     return file_path
 
-def download_fallback_media(url: str):
+def _download_file(url: str, output_path: str, headers=None, timeout=30):
+    """Download a media file safely and reject empty/failed responses."""
+    response = requests.get(url, headers=headers or {'User-Agent': 'Mozilla/5.0'}, timeout=timeout, stream=True)
+    response.raise_for_status()
+    with open(output_path, 'wb') as output:
+        for chunk in response.iter_content(chunk_size=1024 * 256):
+            if chunk:
+                output.write(chunk)
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("Downloaded media is empty")
+    return output_path
+
+
+def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
+    """Turn a photo-mode post into an MP4 slideshow, preserving its music when available."""
+    if not image_paths:
+        raise RuntimeError("No images available for slideshow")
+    concat_path = os.path.join(os.path.dirname(output_path), f"concat_{uuid.uuid4().hex}.txt")
     try:
-        api_url = f"https://tikwm.com/api/?url={url}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(api_url, headers=headers, timeout=15)
-        data = response.json()
-        if data.get("code") == 0:
-            info = data.get("data", {})
-            media_url = info.get("play") or info.get("music")
-            if media_url:
-                res = requests.get(media_url, headers=headers, timeout=20)
-                out_path = "downloads/media_output.mp4" if info.get("play") else "downloads/media_output.mp3"
-                with open(out_path, 'wb') as f:
-                    f.write(res.content)
-                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-                    return out_path
-    except Exception as e:
-        logging.error(f"Fallback API Error: {e}")
-    return None
+        with open(concat_path, 'w', encoding='utf-8') as concat_file:
+            for image_path in image_paths:
+                escaped = os.path.abspath(image_path).replace("'", "'\\''")
+                concat_file.write(f"file '{escaped}'\n")
+                concat_file.write(f"duration {seconds_per_image}\n")
+            # concat demuxer applies the final duration reliably when the last image repeats.
+            escaped = os.path.abspath(image_paths[-1]).replace("'", "'\\''")
+            concat_file.write(f"file '{escaped}'\n")
+
+        duration = max(seconds_per_image * len(image_paths), 3)
+        command = [
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_path,
+        ]
+        if audio_path and os.path.exists(audio_path):
+            command += ['-stream_loop', '-1', '-i', audio_path]
+        command += [
+            '-t', str(duration), '-vf',
+            'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=25,format=yuv420p',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+        ]
+        if audio_path and os.path.exists(audio_path):
+            command += ['-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '128k', '-shortest']
+        else:
+            command += ['-an']
+        command += ['-movflags', '+faststart', output_path]
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=180)
+        if result.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            logging.error("Slideshow ffmpeg failed: %s", result.stderr.decode('utf-8', errors='ignore')[-1500:])
+            raise RuntimeError("Could not build slideshow video")
+        return output_path
+    finally:
+        try:
+            if os.path.exists(concat_path):
+                os.remove(concat_path)
+        except OSError:
+            pass
+
+
+def download_fallback_media(url: str):
+    """TikWM fallback: supports regular videos, photo carousels, and attached music."""
+    work_dir = os.path.join('downloads', f"fallback_{uuid.uuid4().hex}")
+    os.makedirs(work_dir, exist_ok=True)
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get('https://tikwm.com/api/', params={'url': url}, headers=headers, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get('code') != 0:
+            return None
+
+        info = payload.get('data') or {}
+        play_url = info.get('play')
+        music_url = info.get('music')
+        image_urls = info.get('images') or info.get('images_list') or []
+        if isinstance(image_urls, dict):
+            image_urls = list(image_urls.values())
+        image_urls = [item.get('url') if isinstance(item, dict) else item for item in image_urls]
+        image_urls = [item for item in image_urls if isinstance(item, str) and item.startswith('http')]
+
+        # TikTok photo-mode posts commonly expose images plus a separate music URL.
+        if image_urls:
+            image_paths = []
+            for index, image_url in enumerate(image_urls[:30]):
+                image_path = os.path.join(work_dir, f'image_{index:03d}.jpg')
+                try:
+                    _download_file(image_url, image_path, headers=headers, timeout=30)
+                    image_paths.append(image_path)
+                except Exception as exc:
+                    logging.warning("Could not download TikTok image %s: %s", index, exc)
+            if not image_paths:
+                return None
+
+            audio_path = None
+            if music_url and isinstance(music_url, str) and music_url.startswith('http'):
+                try:
+                    audio_path = _download_file(music_url, os.path.join(work_dir, 'music.mp3'), headers=headers, timeout=40)
+                except Exception as exc:
+                    logging.warning("Could not download TikTok photo music: %s", exc)
+
+            output_path = os.path.join('downloads', f"tiktok_slideshow_{uuid.uuid4().hex}.mp4")
+            try:
+                return _make_slideshow(image_paths, audio_path, output_path)
+            except Exception:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                # If FFmpeg cannot make a slideshow, return the first photo as a useful fallback.
+                first_photo = os.path.join('downloads', f"tiktok_photo_{uuid.uuid4().hex}.jpg")
+                import shutil
+                shutil.copyfile(image_paths[0], first_photo)
+                return first_photo
+
+        media_url = play_url or music_url
+        if not media_url:
+            return None
+        is_video = bool(play_url)
+        extension = '.mp4' if is_video else '.mp3'
+        output_path = os.path.join('downloads', f"tiktok_media_{uuid.uuid4().hex}{extension}")
+        return _download_file(media_url, output_path, headers=headers, timeout=45)
+    except Exception as exc:
+        logging.error("TikTok fallback failed: %s", exc)
+        return None
+    finally:
+        # Keep downloaded fallback assets only when FFmpeg is still running; it is synchronous,
+        # so the work directory can be cleaned here after the output has been produced.
+        import shutil
+        try:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
     if 'tiktok.com' in query_str:
@@ -213,11 +324,11 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
             return fallback_file
 
     ydl_opts = {
-        'outtmpl': 'downloads/%(id)s.%(ext)s',
+        'outtmpl': 'downloads/%(extractor)s_%(id)s_%(epoch)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        'ignoreerrors': True,
+        'ignoreerrors': False,
         'geo_bypass': True,
         'format': 'bestvideo+bestaudio/best/best',
         'merge_output_format': 'mp4',
@@ -251,6 +362,9 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                 info = entries[0]
             else:
                 raise Exception("No entries found")
+
+        if not isinstance(info, dict):
+            raise Exception("لم يتمكن الموقع من توفير ملف قابل للتنزيل.")
 
         filename = ydl.prepare_filename(info)
         
@@ -668,7 +782,9 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     await update.message.reply_text("❤️ شكراً جزيلاً على دعمك بالنجوم!")
 
 if __name__ == '__main__':
-    if not os.path.exists('downloads'): os.makedirs('downloads')
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is missing. Add it in Railway Variables.")
+    os.makedirs('downloads', exist_ok=True)
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
