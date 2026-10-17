@@ -13,6 +13,7 @@ import yt_dlp
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# قراءة التوكن حصرياً من متغيرات البيئة للأمان التام
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 URL_PATTERN = r'https?://[^\s]+'
 ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
@@ -198,9 +199,37 @@ def _download_file(url: str, output_path: str, headers=None, timeout=30):
         raise RuntimeError("Downloaded media is empty")
     return output_path
 
-def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
+def _get_audio_duration(audio_path: str) -> float:
+    """استخراج مدة ملف الصوت بدقة باستخدام ffprobe لتجنب تقصير مدة الفيديو."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error', '-show_entries',
+            'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        if result.returncode == 0:
+            return float(result.stdout.strip())
+    except Exception as e:
+        logging.warning(f"Could not determine audio duration: {e}")
+    return 0.0
+
+def _make_slideshow(image_paths, audio_path, output_path, default_seconds_per_image=3):
+    """دمج الصور مع الصوت مع مطابقة مدة الفيديو لطول الصوت الأصلي بدقة بالغة."""
     if not image_paths:
         raise RuntimeError("No images available for slideshow")
+    
+    audio_duration = 0.0
+    if audio_path and os.path.exists(audio_path):
+        audio_duration = _get_audio_duration(audio_path)
+
+    total_images = len(image_paths)
+    if audio_duration > 0:
+        seconds_per_image = max(audio_duration / total_images, 1.0)
+        duration = audio_duration
+    else:
+        seconds_per_image = default_seconds_per_image
+        duration = max(seconds_per_image * total_images, 3)
+
     concat_path = os.path.join(os.path.dirname(output_path), f"concat_{uuid.uuid4().hex}.txt")
     try:
         with open(concat_path, 'w', encoding='utf-8') as concat_file:
@@ -211,22 +240,24 @@ def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
             escaped = os.path.abspath(image_paths[-1]).replace("'", "'\\''")
             concat_file.write(f"file '{escaped}'\n")
 
-        duration = max(seconds_per_image * len(image_paths), 3)
         command = [
             'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_path,
         ]
         if audio_path and os.path.exists(audio_path):
             command += ['-stream_loop', '-1', '-i', audio_path]
+        
+        # الحفاظ على أبعاد الصور الأصلية وعدم تشويهها بنسب مقيدة صارمة
         command += [
             '-t', str(duration), '-vf',
-            'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=25,format=yuv420p',
+            'scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=25,format=yuv420p',
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
         ]
         if audio_path and os.path.exists(audio_path):
-            command += ['-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '128k', '-shortest']
+            command += ['-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k', '-shortest']
         else:
             command += ['-an']
         command += ['-movflags', '+faststart', output_path]
+        
         result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=180)
         if result.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
             logging.error("Slideshow ffmpeg failed: %s", result.stderr.decode('utf-8', errors='ignore')[-1500:])
@@ -267,7 +298,7 @@ def download_fallback_media(url: str):
                     _download_file(image_url, image_path, headers=headers, timeout=30)
                     image_paths.append(image_path)
                 except Exception as exc:
-                    logging.warning("Could not download TikTok image %s: %s", index, exc)
+                    logging.warning(f"Could not download TikTok image {index}: {exc}")
             if not image_paths:
                 return None
 
@@ -276,7 +307,7 @@ def download_fallback_media(url: str):
                 try:
                     audio_path = _download_file(music_url, os.path.join(work_dir, 'music.mp3'), headers=headers, timeout=40)
                 except Exception as exc:
-                    logging.warning("Could not download TikTok photo music: %s", exc)
+                    logging.warning(f"Could not download TikTok photo music: {exc}")
 
             output_path = os.path.join('downloads', f"tiktok_slideshow_{uuid.uuid4().hex}.mp4")
             try:
@@ -297,7 +328,7 @@ def download_fallback_media(url: str):
         output_path = os.path.join('downloads', f"tiktok_media_{uuid.uuid4().hex}{extension}")
         return _download_file(media_url, output_path, headers=headers, timeout=45)
     except Exception as exc:
-        logging.error("TikTok fallback failed: %s", exc)
+        logging.error(f"TikTok fallback failed: {exc}")
         return None
     finally:
         import shutil
@@ -307,7 +338,7 @@ def download_fallback_media(url: str):
             pass
 
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
-    if 'tiktok.com' in query_str:
+    if 'tiktok.com' in query_str and '/photo/' in query_str:
         fallback_file = download_fallback_media(query_str)
         if fallback_file:
             return fallback_file
@@ -371,6 +402,7 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
                 return mp3_path
             return filename
 
+        # الحفاظ على الأبعاد الأصلية وعدم قص الفيديو عند إعادة التغليف بـ FFmpeg
         if not filename.endswith('.mp4') and os.path.exists(filename) and not filename.endswith(('.jpg', '.png', '.webp', '.jpeg', '.mp3')):
             base, _ = os.path.splitext(filename)
             mp4_fixed = f"{base}.mp4"
@@ -410,7 +442,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل الفيديوهات، الصور، والصوتيات بنجاح ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل الفيديوهات بكامل مدتها وأبعادها الأصلية ⚡"
     
     success_count = 0
     fail_count = 0
@@ -774,7 +806,19 @@ if __name__ == '__main__':
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Add it in Railway Variables.")
     os.makedirs('downloads', exist_ok=True)
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # تنظيف أي Webhook قديم عالق لمنع تداخل ومعارضة الـ Polling (خطأ 409 Conflict)
+    async def remove_webhook_on_startup(application):
+        try:
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            logging.info("Successfully cleared old webhooks and pending updates.")
+        except Exception as e:
+            logging.warning(f"Could not clear webhook: {e}")
+
+    app.job_queue.run_once(remove_webhook_on_startup, when=0)
+
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CallbackQueryHandler(handle_button))
@@ -783,4 +827,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
     print("🚀 تم تشغيل البوت وتحديث نظام تنزيل الوسائط بنجاح...")
+    # تفعيل drop_pending_updates لتجنب تداخل التحديثات القديمة
     app.run_polling(drop_pending_updates=True)
