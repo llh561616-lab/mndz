@@ -4,6 +4,7 @@ import json
 import logging
 import subprocess
 import asyncio
+import requests
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
@@ -11,7 +12,7 @@ import yt_dlp
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-BOT_TOKEN = "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8828537412:AAHAS_jsgcKGCo3VPit9y4gH-Q2wErroSTE")
 URL_PATTERN = r'https?://[^\s]+'
 ADMIN_ID = 8839862955  # آيدي الأدمن الخاص بك
 
@@ -80,7 +81,7 @@ def load_downloads():
 def increment_downloads():
     d_count = load_downloads() + 1
     try:
-        with open(STATS_FILE, 'w') as f:
+        with open(STATS_FILE, 'w', encoding='utf-8') as f:
             json.dump({"downloads": d_count}, f)
     except Exception as e:
         logging.error(f"Error saving stats: {e}")
@@ -185,7 +186,32 @@ def upscale_video_resolution(file_path: str, resolution: str):
         return output_hd
     return file_path
 
+def download_fallback_media(url: str):
+    try:
+        api_url = f"https://tikwm.com/api/?url={url}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(api_url, headers=headers, timeout=15)
+        data = response.json()
+        if data.get("code") == 0:
+            info = data.get("data", {})
+            media_url = info.get("play") or info.get("music")
+            if media_url:
+                res = requests.get(media_url, headers=headers, timeout=20)
+                out_path = "downloads/media_output.mp4" if info.get("play") else "downloads/media_output.mp3"
+                with open(out_path, 'wb') as f:
+                    f.write(res.content)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                    return out_path
+    except Exception as e:
+        logging.error(f"Fallback API Error: {e}")
+    return None
+
 def download_media(query_str: str, is_audio: bool = False, is_search: bool = False):
+    if 'tiktok.com' in query_str:
+        fallback_file = download_fallback_media(query_str)
+        if fallback_file:
+            return fallback_file
+
     ydl_opts = {
         'outtmpl': 'downloads/%(id)s.%(ext)s',
         'quiet': True,
@@ -213,17 +239,11 @@ def download_media(query_str: str, is_audio: bool = False, is_search: bool = Fal
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(target_query, download=True)
-        except Exception as e:
-            # في حال واجهت أي مشكلة أو Unsupported URL للرابط، نقوم بمحاولة استخراج الصوت المباشر منه
-            ydl_opts_fallback = {
-                'outtmpl': 'downloads/%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
-                'format': 'bestaudio/best',
-                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            }
-            with yt_dlp.YoutubeDL(ydl_opts_fallback) as ydl_fb:
-                info = ydl_fb.extract_info(target_query, download=True)
+        except Exception:
+            fallback_file = download_fallback_media(query_str)
+            if fallback_file:
+                return fallback_file
+            raise Exception("تعذر تنزيل الوسائط من هذا الرابط.")
 
         if isinstance(info, dict) and 'entries' in info:
             entries = info['entries']
@@ -268,7 +288,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     start_msg = (
         "مرحباً بك عزيزي في بوت تحميل الوسائط 📥\n\n"
-        "أداة سريعة لتحميل الفيديوهات والملفات الصوتية من يوتيوب، تيك توك، انستغرام وباقي المنصات بدقة عالية وبدون إعلانات.\n\n"
+        "أداة سريعة لتحميل الفيديوهات والملفات الصوتية والصور من يوتيوب، تيك توك، انستغرام وباقي المنصات بدقة عالية وبدون إعلانات.\n\n"
         "أرسل الرابط المطلوب أو ابدأ الاستخدام عبر الزر أدناه."
     )
     keyboard = [[InlineKeyboardButton("🚀 ابدأ الاستخدام الآن", callback_data="start_guide")]]
@@ -287,7 +307,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         broadcast_text = " ".join(context.args)
     else:
-        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل جميع روابط تيك توك بنجاح ⚡"
+        broadcast_text = "<b>خبر جديد 😆✨</b>\n\nتم تحديث البوت ودعم تحميل الفيديوهات، الصور، والصوتيات بنجاح ⚡"
     
     success_count = 0
     fail_count = 0
@@ -390,13 +410,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = re.search(URL_PATTERN, text)
     if match:
         query_val = match.group(0)
-        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الرابط...</b>", parse_mode="HTML")
+        status_msg = await update.message.reply_text("⚡ <b>جاري التحميل ومعالجة الوسائط...</b>", parse_mode="HTML")
         file_path = None
         try:
             file_path = download_media(query_val, is_audio=False, is_search=False)
             
             if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، لم يتم العثور على محتوى صالح في هذا الرابط.\nتواصل مع المطور: @xlxm3")
+                await status_msg.edit_text("⚠️ عذراً، تعذر العثور على محتوى صالح في هذا الرابط.\nتواصل مع المطور: @xlxm3")
                 return
 
             msg_id_key = str(update.message.message_id)
@@ -420,14 +440,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_photo(photo=f_photo, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard))
             elif file_path.lower().endswith('.mp3'):
                 with open(file_path, 'rb') as f_aud:
-                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم استخراج وتحميل الموسيقى بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await update.message.reply_audio(audio=f_aud, caption="🎵 تم تحميل ملف الصوت والموسيقى بنجاح!\n\nللدعم: @xlxm3", reply_markup=InlineKeyboardMarkup(keyboard))
             else:
                 with open(file_path, 'rb') as f_vid:
                     await update.message.reply_video(video=f_vid, caption=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), supports_streaming=True)
             await status_msg.delete()
         except Exception as e:
             logging.error(f"Download Error for {query_val}: {e}")
-            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو الرابط غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
+            await status_msg.edit_text("⚠️ عذراً، فشل التحميل أو أن الرابط محمي/غير مدعوم حالياً!\nتواصل مع المطور للاكتشاف والحل: @xlxm3")
         finally:
             if file_path and os.path.exists(file_path):
                 try: os.remove(file_path)
@@ -488,7 +508,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
 
     if data == "start_guide":
-        await query.message.reply_text("أرسل رابط الفيديو المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
+        await query.message.reply_text("أرسل رابط الوسائط المباشر الآن (يوتيوب، تيك توك، انستغرام) وسأقوم بتحميله فوراً 📥")
         return
 
     if data in ["cancel_search", "cancel_trim"]:
@@ -547,7 +567,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             res_type = parts[1]
             msg_id = parts[2]
             
-            status_msg = await query.message.reply_text(f"⏳ جاري تعديل دقة الفيديو ({res_type})...")
+            status_msg = await query.message.reply_text(f"⏳ جاري تعديل دقة الوسائط ({res_type})...")
             
             stored = message_links.get(msg_id, {})
             q_val = stored.get("query", "")
@@ -557,14 +577,14 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             up_path = upscale_video_resolution(local_file, res_type)
             
             if not os.path.exists(up_path) or os.path.getsize(up_path) == 0:
-                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الفيديو أو أن الملف غير موجود.")
+                await status_msg.edit_text("⚠️ عذراً، حدث خطأ أثناء معالجة دقة الملف أو أن الملف غير موجود.")
                 return
             
             increment_downloads()
             increment_user_usage(user_id)
             
             caption = (
-                f"✨ <b>تم ضبط دقة الفيديو بنجاح ({res_type})!</b>\n\n"
+                f"✨ <b>تم ضبط دقة الملف بنجاح ({res_type})!</b>\n\n"
                 "شكراً لاستخدامك البوت ❤️\n"
                 "للدعم تواصل مع المطور: @xlxm3"
             )
@@ -657,5 +677,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت ودعم تحميل صور وفيديوهات تيك توك بنجاح...")
+    print("🚀 تم تحديث البوت ودعم تحميل الفيديوهات والصور والصوتيات بنجاح...")
     app.run_polling(drop_pending_updates=True)
