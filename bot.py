@@ -5,7 +5,6 @@ import logging
 import subprocess
 import asyncio
 import requests
-import tempfile
 import uuid
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
@@ -83,7 +82,7 @@ def load_downloads():
 def increment_downloads():
     d_count = load_downloads() + 1
     try:
-        with open(STATS_FILE, 'w', encoding='utf-8') as f:
+        with open(STATS_FILE, 'w') as f:
             json.dump({"downloads": d_count}, f)
     except Exception as e:
         logging.error(f"Error saving stats: {e}")
@@ -189,7 +188,6 @@ def upscale_video_resolution(file_path: str, resolution: str):
     return file_path
 
 def _download_file(url: str, output_path: str, headers=None, timeout=30):
-    """Download a media file safely and reject empty/failed responses."""
     response = requests.get(url, headers=headers or {'User-Agent': 'Mozilla/5.0'}, timeout=timeout, stream=True)
     response.raise_for_status()
     with open(output_path, 'wb') as output:
@@ -200,9 +198,7 @@ def _download_file(url: str, output_path: str, headers=None, timeout=30):
         raise RuntimeError("Downloaded media is empty")
     return output_path
 
-
 def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
-    """Turn a photo-mode post into an MP4 slideshow, preserving its music when available."""
     if not image_paths:
         raise RuntimeError("No images available for slideshow")
     concat_path = os.path.join(os.path.dirname(output_path), f"concat_{uuid.uuid4().hex}.txt")
@@ -212,7 +208,6 @@ def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
                 escaped = os.path.abspath(image_path).replace("'", "'\\''")
                 concat_file.write(f"file '{escaped}'\n")
                 concat_file.write(f"duration {seconds_per_image}\n")
-            # concat demuxer applies the final duration reliably when the last image repeats.
             escaped = os.path.abspath(image_paths[-1]).replace("'", "'\\''")
             concat_file.write(f"file '{escaped}'\n")
 
@@ -244,9 +239,7 @@ def _make_slideshow(image_paths, audio_path, output_path, seconds_per_image=3):
         except OSError:
             pass
 
-
 def download_fallback_media(url: str):
-    """TikWM fallback: supports regular videos, photo carousels, and attached music."""
     work_dir = os.path.join('downloads', f"fallback_{uuid.uuid4().hex}")
     os.makedirs(work_dir, exist_ok=True)
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -266,7 +259,6 @@ def download_fallback_media(url: str):
         image_urls = [item.get('url') if isinstance(item, dict) else item for item in image_urls]
         image_urls = [item for item in image_urls if isinstance(item, str) and item.startswith('http')]
 
-        # TikTok photo-mode posts commonly expose images plus a separate music URL.
         if image_urls:
             image_paths = []
             for index, image_url in enumerate(image_urls[:30]):
@@ -292,7 +284,6 @@ def download_fallback_media(url: str):
             except Exception:
                 if os.path.exists(output_path):
                     os.remove(output_path)
-                # If FFmpeg cannot make a slideshow, return the first photo as a useful fallback.
                 first_photo = os.path.join('downloads', f"tiktok_photo_{uuid.uuid4().hex}.jpg")
                 import shutil
                 shutil.copyfile(image_paths[0], first_photo)
@@ -309,8 +300,6 @@ def download_fallback_media(url: str):
         logging.error("TikTok fallback failed: %s", exc)
         return None
     finally:
-        # Keep downloaded fallback assets only when FFmpeg is still running; it is synchronous,
-        # so the work directory can be cleaned here after the output has been produced.
         import shutil
         try:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -793,5 +782,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🚀 تم تحديث البوت ودعم تحميل الفيديوهات والصور والصوتيات بنجاح...")
+    print("🚀 تم تشغيل البوت وتحديث نظام تنزيل الوسائط بنجاح...")
     app.run_polling(drop_pending_updates=True)
